@@ -39,7 +39,7 @@ class BaseOptions():
 
         # classifier parameters
         parser.add_argument('--f_theta_checkpoint', type=str, default=None, help='Path to classifier checkpoint to restore weights from')
-        parser.add_argument('--f_theta_input_shape', type=int, nargs='+', default=[28, 28], help='Input shape for classifier')
+        parser.add_argument('--f_theta_input_shape', type=int, nargs='+', default=[32, 32], help='Input shape for classifier')
         parser.add_argument('--f_theta_input_nc', type=int, default=1, help='Input channels for classifier')
         parser.add_argument('--f_theta_net', type=str, default='Vgg2D', help='Name of classifier')
         parser.add_argument('--f_theta_output_classes', type=int, default=10, help='Number of output classes for classifier')
@@ -50,8 +50,8 @@ class BaseOptions():
         parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
         parser.add_argument('--num_threads', default=4, type=int, help='# threads for loading data')
         parser.add_argument('--batch_size', type=int, default=1, help='input batch size')
-        parser.add_argument('--load_size', type=int, default=28, help='scale images to this size')
-        parser.add_argument('--crop_size', type=int, default=28, help='then crop to this size')
+        parser.add_argument('--load_size', type=int, default=32, help='scale images to this size')
+        parser.add_argument('--crop_size', type=int, default=32, help='then crop to this size')
         parser.add_argument('--max_dataset_size', type=int, default=float("inf"), help='Maximum number of samples allowed per dataset. If the dataset directory contains more than max_dataset_size, only a subset is loaded.')
         parser.add_argument('--preprocess', type=str, default='none', help='scaling and cropping of images at load time [resize_and_crop | crop | scale_width | scale_width_and_crop | none]')
         parser.add_argument('--no_flip', action='store_false', help='if specified, do not flip the images for data augmentation')

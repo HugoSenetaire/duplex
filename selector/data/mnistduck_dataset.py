@@ -5,6 +5,7 @@ from PIL import Image
 import torchvision.datasets as datasets
 import random
 import torch
+from torchvision.transforms import Pad
 
 class MnistDuckDataset(BaseDataset):
     """This dataset does not make any sense. It's just a creation for me to understand how the data is passed to the model.
@@ -19,7 +20,7 @@ class MnistDuckDataset(BaseDataset):
         """
         BaseDataset.__init__(self, opt)
         assert(self.opt.load_size >= self.opt.crop_size)   # crop_size should be smaller than the size of loaded image
-        self.mnist = datasets.MNIST(root=opt.dataroot, train=train_dataset, download=True, transform=None,)
+        self.mnist = datasets.MNIST(root=opt.dataroot, train=train_dataset, download=True, transform=Pad(2),)
         self.input_nc = 1
         self.corresponding_index = {}
 
@@ -58,8 +59,8 @@ class MnistDuckDataset(BaseDataset):
         x_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
         x_cf_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
 
-        x = x_transform(x).reshape(1, 28, 28)
-        x_cf = x_cf_transform(x_cf).reshape(1, 28, 28)
+        x = x_transform(x).reshape(1, 32, 32)
+        x_cf = x_cf_transform(x_cf).reshape(1, 32, 32)
 
         y = torch.tensor(y)
         y_cf = torch.tensor(y_cf)

@@ -5,6 +5,7 @@ import functools
 from torch.optim import lr_scheduler
 import torch.nn.functional as F
 from dapi_networks.Vgg2D import Vgg2D
+import numpy as np
 from dapi_networks.ResNet import ResNet
 
 ###############################################################################
@@ -118,7 +119,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], input_shape=(32,32)):
     """Create a generator
 
     Parameters:
@@ -156,6 +157,10 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif selector == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif selector == 'unet_32':
+        net = UnetGenerator(input_nc, output_nc, 5, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif selector == 'fc':
+        net = FullyConectedGenerator(input_shape)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % selector)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -319,6 +324,24 @@ class ResnetBlock(nn.Module):
         out = x + self.conv_block(x)  # add skip connections
         return out
 
+class FullyConectedGenerator(nn.Module):
+    """Fully connected generator"""
+    def __init__(self, input_size,):
+        super(FullyConectedGenerator, self).__init__()
+        self.input_size = input_size
+        self.fc1 = nn.Linear(np.prod(input_size), 100)
+        self.fc2 = nn.Linear(100, 100)
+        self.fc3 = nn.Linear(100, np.prod(input_size))
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):   
+        x = x.view(-1, np.prod(self.input_size))
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.tanh(self.fc3(x))
+        x = x.view(-1, 1, self.input_size[0], self.input_size[1])
+        return x
 
 class UnetGenerator(nn.Module):
     """Create a Unet-based generator"""

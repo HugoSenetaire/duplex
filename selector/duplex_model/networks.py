@@ -157,7 +157,7 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
     elif selector == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     else:
-        raise NotImplementedError('Generator model name [%s] is not recognized' % netG)
+        raise NotImplementedError('Generator model name [%s] is not recognized' % selector)
     return init_net(net, init_type, init_gain, gpu_ids)
 
 

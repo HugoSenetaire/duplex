@@ -3,6 +3,7 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
+import duplex_model.networks as networks
 
 
 class BaseModel(ABC):
@@ -141,15 +142,16 @@ class BaseModel(ABC):
         return errors_ret
 
     def get_current_aux_infos(self):
-        aux_infos = OrderedDict()
-        for name in self.aux_names:
-            if isinstance(name, str):
-                try:
-                    aux_infos[name] = np.array((getattr(self, name)).cpu().detach().numpy())  # float(...) works for both scalar tensor and float number
-                except AttributeError:
-                    pass
+        pass
+        # aux_infos = OrderedDict()
+        # for name in self.aux_names:
+        #     if isinstance(name, str):
+        #         try:
+        #             aux_infos[name] = np.array((getattr(self, name)).cpu().detach().numpy())  # float(...) works for both scalar tensor and float number
+        #         except AttributeError:
+        #             pass
 
-        return aux_infos
+        # return aux_infos
 
     def save_networks(self, epoch):
         """Save all the networks to the disk.

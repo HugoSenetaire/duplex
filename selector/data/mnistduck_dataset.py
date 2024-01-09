@@ -4,13 +4,14 @@ from data.image_folder import make_dataset
 from PIL import Image
 import torchvision.datasets as datasets
 import random
+import torch
 
 class MnistDuckDataset(BaseDataset):
     """This dataset does not make any sense. It's just a creation for me to understand how the data is passed to the model.
     What I do is I pair randomly an image from the MNIST dataset with a given target to a another image from the MNIST dataset with a different target.
     """
 
-    def __init__(self, opt, ):
+    def __init__(self, opt, train_dataset=True):
         """Initialize this dataset class.
 
         Parameters:
@@ -18,8 +19,9 @@ class MnistDuckDataset(BaseDataset):
         """
         BaseDataset.__init__(self, opt)
         assert(self.opt.load_size >= self.opt.crop_size)   # crop_size should be smaller than the size of loaded image
-        self.mnist = datasets.MNIST(root='./data', train=opt.train_dataset, download=True, transform=None)
+        self.mnist = datasets.MNIST(root=opt.dataroot, train=train_dataset, download=True, transform=None,)
         self.input_nc = 1
+        self.corresponding_index = {}
 
         
 
@@ -40,17 +42,27 @@ class MnistDuckDataset(BaseDataset):
         """
 
         x, y = self.mnist.__getitem__(index)
-        y_cf = y
-        while y_cf == y:
-            x_cf, y_cf = self.mnist.__getitem__(random.randint(0, len(self.mnist)-1))
+        if y not in self.corresponding_index:
+            y_cf = y
+            while y_cf == y:
+                index = random.randint(0, len(self.mnist)-1)
+                x_cf, y_cf = self.mnist.__getitem__(index)
+            self.corresponding_index[y] = index
+        else:
+            index = self.corresponding_index[y]
+            x_cf, y_cf = self.mnist.__getitem__(index)
+
 
         transform_params = get_params(self.opt, x.size)
 
         x_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
         x_cf_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
 
-        x = x_transform(x)
-        x_cf = x_cf_transform(x_cf)
+        x = x_transform(x).reshape(1, 28, 28)
+        x_cf = x_cf_transform(x_cf).reshape(1, 28, 28)
+
+        y = torch.tensor(y)
+        y_cf = torch.tensor(y_cf)
 
         return {'x': x, 'x_cf': x_cf, 'x_paths': index, 'x_cf_paths': index, 'y': y, 'y_cf': y_cf}
 

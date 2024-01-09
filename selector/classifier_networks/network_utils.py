@@ -6,7 +6,7 @@ from dapi.utils import image_to_tensor
 
 def init_network(checkpoint_path=None, input_shape=(128,128), net_module="Vgg2D",
                  input_nc=1, output_classes=6, gpu_ids=[], eval_net=True, require_grad=False,
-                 downsample_factors=None):
+                 downsample_factors=[(2, 2), (2, 2),]):
     """
     checkpoint_path: Path to train checkpoint to restore weights from
 

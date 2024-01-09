@@ -8,7 +8,7 @@ from duplex_model.networks import define_selector
 from classifier_networks.network_utils import init_network, run_inference
 
 
-class PathWiseSelector(BaseModel):
+class PathWiseSelectorModel(BaseModel):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
 
@@ -43,10 +43,10 @@ class PathWiseSelector(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["loss_class", "loss_reg"]
+        self.loss_names = ["class", "reg", "total", "acc"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'z', 'x_tilde',]
+        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save' 'x_tilde',]
 
         # check args consistency
         # NA for Now
@@ -67,7 +67,7 @@ class PathWiseSelector(BaseModel):
         if self.isTrain:  # define classifiers
             self.netf_theta = init_network(
                 checkpoint_path=opt.f_theta_checkpoint,
-                input_shape=opt.input_shape,
+                input_shape=opt.f_theta_input_shape,
                 net_module=opt.f_theta_net,
                 input_nc=opt.f_theta_input_nc,
                 output_classes=opt.f_theta_output_classes,
@@ -84,7 +84,7 @@ class PathWiseSelector(BaseModel):
             
 
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            self.optimizer_selector = torch.optim.Adam(self.selector.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_selector = torch.optim.Adam(self.netg_gamma.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_selector)
 
     def set_input(self, input):
@@ -94,11 +94,12 @@ class PathWiseSelector(BaseModel):
             input: a dictionary that contains the data itself and its metadata information.
         """
         self.x = input['x'].to(self.device)
-        self.y = input['y_true'].to(self.device)
+        self.y = input['y'].to(self.device)
 
         self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cp here ?
         self.y_cf = input['y_cf'].to(self.device) 
-        self.image_paths = input['path']
+        self.image_paths = input['x_paths']
+        self.image_cf_path = input['x_cf_paths']
 
     def define_nb_sample(self,):
         """
@@ -123,18 +124,26 @@ class PathWiseSelector(BaseModel):
         self.pi = self.netg_gamma(self.x)
 
         # Sample from the mask distribution
-        self.z = self.p_z.rsample(self.pi, self.mc_sample_z) # Need Rsample here to allow pathwise estimation
-        self.z = self.z.reshape(self.mc_sample_z, self.x.shape[0], *self.x.shape[2:]) 
+        self.z = self.p_z.rsample(self.mc_sample_z, self.pi) # Need Rsample here to allow pathwise estimation
+        self.z = self.z.reshape(self.mc_sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
         
         # Expand the input images to match the shape of the mask samples
         self.x_expanded = self.x.unsqueeze(0).expand(self.mc_sample_z,*self.x.shape)
-        self.x_cf_expanded = self.x_cf.unsqueeze(1).expand(self.mc_sample_z, *self.x_cf.shape)
+        self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.mc_sample_z, *self.x_cf.shape)
         
         # Create mixed images
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
+        self.z_to_save = (self.z.flatten(0,1) * 2)-1
+        self.pi_to_save = (self.pi.sigmoid().flatten(0,1) * 2)-1
+        self.x_tilde = self.x_tilde.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])
         
         # Calculate the classifier output on the mixed images
-        self.y_tilde = self.netf_theta(self.x_tilde).reshape(self.mc_sample_z, self.x.shape[0])
+        self.y_tilde = self.netf_theta(self.x_tilde)
+        self.y_tilde = self.y_tilde.reshape(self.mc_sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+
+        
+
+
         self.y_expanded = self.y.unsqueeze(0).expand(self.mc_sample_z, *self.y.shape)
 
 
@@ -143,8 +152,9 @@ class PathWiseSelector(BaseModel):
         # Regularization
         self.loss_reg = self.lambda_regularization * self.z.reshape(self.x.shape[0], self.mc_sample_z*self.imp_sample_z, *self.x.shape[1:]).abs().mean(1).mean(0).mean()
         
+        self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
         # Likelihood guidance 
-        self.loss_class = F.cross_entropy(self.y_tilde, self.y_expanded)
+        self.loss_class = F.cross_entropy(self.y_tilde.reshape(self.mc_sample_z*self.x.shape[0], self.opt.f_theta_output_classes), self.y_expanded.reshape(self.mc_sample_z*self.x.shape[0]), reduction='mean')
 
         self.loss_total = self.loss_class + self.loss_reg
         self.loss_total.backward()

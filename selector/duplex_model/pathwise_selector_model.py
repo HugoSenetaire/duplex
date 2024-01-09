@@ -31,7 +31,7 @@ class PathWiseSelectorModel(BaseModel):
         """
         parser.add_argument('--model_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[model_suffix].pth will be loaded as the generator.')
         parser.add_argument('--lambda_regularization', type=float, default=0.1, help='L1 regularization strenght to limit the selection of the mask')
-        parser.add_argument('--temperature_relax', type=float, default=0.1, help='Temperature for the relaxed mask distribution')
+        parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
 
         return parser
 
@@ -43,10 +43,10 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "total", "acc"]
+        self.loss_names = ["class", "reg", "acc", "class_test", "acc_test"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save' 'x_tilde',]
+        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_test', 'x_tilde_test']
 
         # check args consistency
         # NA for Now
@@ -59,10 +59,11 @@ class PathWiseSelectorModel(BaseModel):
 
         # define networks (both selectors and classifiers)
         self.netg_gamma = define_selector(opt.input_nc, opt.ngf, opt.net_selector, opt.norm, # In the case of the mask, one just needs the output mask
-                                        not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
+                                        not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids, opt.f_theta_input_shape).to(self.device)
         
         
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
+        self.p_z_test = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
 
         if self.isTrain:  # define classifiers
             self.netf_theta = init_network(
@@ -71,7 +72,7 @@ class PathWiseSelectorModel(BaseModel):
                 net_module=opt.f_theta_net,
                 input_nc=opt.f_theta_input_nc,
                 output_classes=opt.f_theta_output_classes,
-                )
+                ).to(self.device)
             
 
         if self.isTrain:
@@ -121,25 +122,46 @@ class PathWiseSelectorModel(BaseModel):
         self.define_nb_sample()
         
         # Calculate the mask distribution parameter
-        self.pi = self.netg_gamma(self.x)
+        try :
+            self.pi = self.netg_gamma(self.x)
+        except RuntimeError as e:
+            print(e)
+            print(self.x.shape)
+            raise e
+
 
         # Sample from the mask distribution
         self.z = self.p_z.rsample(self.mc_sample_z, self.pi) # Need Rsample here to allow pathwise estimation
         self.z = self.z.reshape(self.mc_sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+
+
+        # Sample
+        self.z_test = self.p_z_test.sample(self.mc_sample_z, self.pi) # Need Rsample here to allow pathwise estimation
+        self.z_test = self.z_test.reshape(self.mc_sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
         # Expand the input images to match the shape of the mask samples
-        self.x_expanded = self.x.unsqueeze(0).expand(self.mc_sample_z,*self.x.shape)
+        self.x_expanded = self.x.unsqueeze(0).expand(self.mc_sample_z, *self.x.shape)
         self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.mc_sample_z, *self.x_cf.shape)
         
         # Create mixed images
+        # self.x_tilde = (self.x_expanded * self.z - (self.z - 1) ).flatten(0,1)
+        # self.x_tilde_test = (self.x_expanded * self.z_test - (self.z - 1)).flatten(0,1)
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
-        self.z_to_save = (self.z.flatten(0,1) * 2)-1
-        self.pi_to_save = (self.pi.sigmoid().flatten(0,1) * 2)-1
+        self.x_tilde_test = (self.x_expanded * self.z_test + (1 - self.z_test) * self.x_cf_expanded).flatten(0,1)
+
+
+        self.z_to_save = (self.z.flatten(0,1) * 2) -1
+        self.pi_to_save = (self.pi.sigmoid() * 2) -1
+        self.z_to_save_test = (self.z_test.flatten(0,1) * 2) -1
+        
         self.x_tilde = self.x_tilde.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde_test = self.x_tilde_test.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])
         
         # Calculate the classifier output on the mixed images
         self.y_tilde = self.netf_theta(self.x_tilde)
+        self.y_tilde_test = self.netf_theta(self.x_tilde_test)
         self.y_tilde = self.y_tilde.reshape(self.mc_sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+        self.y_tilde_test = self.y_tilde_test.reshape(self.mc_sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
         
 
@@ -150,13 +172,17 @@ class PathWiseSelectorModel(BaseModel):
     def backward_g_gamma(self):
         """Calculate the loss selector NN g_gamma"""
         # Regularization
-        self.loss_reg = self.lambda_regularization * self.z.reshape(self.x.shape[0], self.mc_sample_z*self.imp_sample_z, *self.x.shape[1:]).abs().mean(1).mean(0).mean()
+        self.loss_reg =  self.pi.sigmoid().reshape(self.x.shape[0], *self.x.shape[1:]).mean(0).mean()
+
+
         
         self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
+        self.loss_acc_test = (self.y_tilde_test.argmax(-1) == self.y_expanded).float().mean()
         # Likelihood guidance 
         self.loss_class = F.cross_entropy(self.y_tilde.reshape(self.mc_sample_z*self.x.shape[0], self.opt.f_theta_output_classes), self.y_expanded.reshape(self.mc_sample_z*self.x.shape[0]), reduction='mean')
+        self.loss_class_test = F.cross_entropy(self.y_tilde_test.reshape(self.mc_sample_z*self.x.shape[0], self.opt.f_theta_output_classes), self.y_expanded.reshape(self.mc_sample_z*self.x.shape[0]), reduction='mean')
 
-        self.loss_total = self.loss_class + self.loss_reg
+        self.loss_total = self.loss_class + self.lambda_regularization * self.loss_reg
         self.loss_total.backward()
        
 

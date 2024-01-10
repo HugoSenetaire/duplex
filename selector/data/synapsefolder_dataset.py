@@ -14,6 +14,7 @@ from PIL import Image
 import pandas as pd
 import numpy as np
 from data.base_dataset import BaseDataset
+import torch
 
 IMG_EXTENSIONS = [
     ".jpg",
@@ -65,7 +66,7 @@ def make_dataset(
 
 
 def default_loader(path):
-    return np.array(Image.open(path))[
+    return np.array(Image.open(path), dtype=np.float32)[
         ..., 0
     ]  # It's a grayscale image, so we only need one channel
 
@@ -113,13 +114,16 @@ class SynapseFolderDataset(BaseDataset):
                     A.RandomRotate90(p=0.5),
                     apytorch.transforms.ToTensorV2(),
 
-                ]
+                ],
+                additional_targets={"image1": "image",},
+
             )
         else:
             self.transform = A.Compose(
             [
                 apytorch.transforms.ToTensorV2()
-            ]
+            ],
+            additional_targets={"image1": "image",},
         )
 
         
@@ -133,18 +137,17 @@ class SynapseFolderDataset(BaseDataset):
     def __getitem__(self, index):
         path = self.imgs[index]
         counterfactual_path = self.counterfactuals[index]
-        image = default_loader(path)
-        counterfactual = default_loader(counterfactual_path)
+        image = default_loader(path)/255 *2 -1
+        counterfactual = default_loader(counterfactual_path)/255 *2 -1
         # if self.transform is not None:
-        transformed = self.transform(image=image, xcf=counterfactual)
-        print(transformed)
+        transformed = self.transform(image=image, image1=counterfactual)
         # TODO might need to change the names based on expectations from selector
 
-        transformed["y"] = torch.from_numpy(np.argmax(self.original_predictions.iloc[index]))
-        transformed["y_cf"] = torch.from_numpy((transformed["y"] + 1)  % 6)
+        transformed["y"] = torch.tensor(np.argmax(self.original_predictions.iloc[index].to_numpy()))
+        transformed["y_cf"] = (transformed["y"] + 1)  % 6
         # transformed["x_paths"] = "None"
         # transformed["x_cf_paths"] = "None"
         transformed["x"] = transformed["image"]
-        transformed["x_cf"] = transformed["xcf"]
+        transformed["x_cf"] = transformed["image1"]
         return transformed
     

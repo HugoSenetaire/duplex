@@ -5,7 +5,7 @@ from util.image_pool import ImagePool
 from duplex_model.base_model import BaseModel
 from duplex_model.mask_distribution import IndependentRelaxedBernoulli
 from duplex_model.networks import define_selector
-from classifier_networks.network_utils import init_network, run_inference
+from dapi_networks.network_utils import init_network, run_inference
 
 
 class PathWiseSelectorModel(BaseModel):
@@ -58,20 +58,23 @@ class PathWiseSelectorModel(BaseModel):
             self.model_names = ['g_gamma', ]
 
         # define networks (both selectors and classifiers)
+        print("Setting up selector")
         self.netg_gamma = define_selector(opt.input_nc, opt.ngf, opt.net_selector, opt.norm, # In the case of the mask, one just needs the output mask
                                         not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids, opt.f_theta_input_shape).to(self.device)
         
-        
+        print("Setting up mask distribution")
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
         self.p_z_notemp = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
 
         if self.isTrain:  # define classifiers
+            print("Setting up classifier")
             self.netf_theta = init_network(
                 checkpoint_path=opt.f_theta_checkpoint,
                 input_shape=opt.f_theta_input_shape,
                 net_module=opt.f_theta_net,
                 input_nc=opt.f_theta_input_nc,
                 output_classes=opt.f_theta_output_classes,
+                downsample_factors=[(2, 2), (2, 2), (1, 1), (1, 1)]
                 ).to(self.device)
             
 
@@ -100,8 +103,8 @@ class PathWiseSelectorModel(BaseModel):
         self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cf here ?
         self.y_cf = input['y_cf'].to(self.device) 
 
-        self.image_paths = input['x_paths']
-        self.image_cf_path = input['x_cf_paths']
+        # self.image_paths = input['x_paths']
+        # self.image_cf_path = input['x_cf_paths']
 
     def define_nb_sample(self,):
         """
@@ -129,12 +132,8 @@ class PathWiseSelectorModel(BaseModel):
         self.define_nb_sample()
         
         # Calculate the mask distribution parameter
-        try :
-            self.pi_logit = self.netg_gamma(self.x)
-        except RuntimeError as e:
-            print(e)
-            print(self.x.shape)
-            raise e
+        print(self.x)
+        self.pi_logit = self.netg_gamma(self.x)
 
         self.log_pi = F.logsigmoid(self.pi_logit)
 

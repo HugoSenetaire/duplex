@@ -43,10 +43,10 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_test", "acc_test"]
+        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_test', 'x_tilde_test']
+        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
 
         # check args consistency
         # NA for Now
@@ -63,7 +63,7 @@ class PathWiseSelectorModel(BaseModel):
         
         
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
-        self.p_z_test = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
+        self.p_z_notemp = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
 
         if self.isTrain:  # define classifiers
             self.netf_theta = init_network(
@@ -117,8 +117,8 @@ class PathWiseSelectorModel(BaseModel):
             self.mc_sample_z = self.opt.mc_sample_z
             self.imp_sample_z = self.opt.imp_sample_z
         else:
-            self.mc_sample_z = self.opt.mc_sample_z_test
-            self.imp_sample_z = self.opt.imp_sample_z_test
+            self.mc_sample_z = self.opt.mc_sample_z_notemp
+            self.imp_sample_z = self.opt.imp_sample_z_notemp
         
         self.sample_z = self.mc_sample_z * self.imp_sample_z
     
@@ -144,8 +144,8 @@ class PathWiseSelectorModel(BaseModel):
 
 
         # Sample
-        self.z_test = self.p_z_test.sample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
-        self.z_test = self.z_test.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+        self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
+        self.z_notemp = self.z_notemp.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
         # Expand the input images to match the shape of the mask samples
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
@@ -158,16 +158,16 @@ class PathWiseSelectorModel(BaseModel):
 
         self.z_to_save = (self.z.flatten(0,1) * 2) -1
         self.pi_to_save = (self.log_pi.exp() * 2) -1
-        self.z_to_save_test = (self.z_test.flatten(0,1) * 2) -1
+        self.z_to_save_notemp = (self.z_notemp.flatten(0,1) * 2) -1
         
         self.x_tilde = self.x_tilde.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
-        self.x_tilde_test = self.x_tilde_test.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde_notemp = self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         
         # Calculate the classifier output on the mixed images
         self.y_tilde = self.netf_theta(self.x_tilde)
-        self.y_tilde_test = self.netf_theta(self.x_tilde_test)
+        self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
         self.y_tilde = self.y_tilde.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
-        self.y_tilde_test = self.y_tilde_test.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+        self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
         
 
@@ -188,7 +188,7 @@ class PathWiseSelectorModel(BaseModel):
         
         # Accuracy metrics
         self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
-        self.loss_acc_test = (self.y_tilde_test.argmax(-1) == self.y_expanded).float().mean()
+        self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().mean()
 
 
         # Likelihood guidance 
@@ -200,11 +200,11 @@ class PathWiseSelectorModel(BaseModel):
         
         
         # Likelihood guidance but without temperature relaxation
-        self.loss_class_test = F.cross_entropy(
-            self.y_tilde_test.reshape(self.sample_z*self.x.shape[0],self.opt.f_theta_output_classes),
+        self.loss_class_notemp = F.cross_entropy(
+            self.y_tilde_notemp.reshape(self.sample_z*self.x.shape[0],self.opt.f_theta_output_classes),
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
-        self.loss_class_test = self.loss_class_test.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
+        self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
         
 
         # Total loss

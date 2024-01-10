@@ -151,7 +151,7 @@ class PathWiseSelectorModel(BaseModel):
 
 
         self.z_to_save = (self.z.flatten(0,1) * 2) -1
-        self.pi_to_save = (self.pi.sigmoid() * 2) -1
+        self.pi_to_save = (self.log_pi.exp() * 2) -1
         self.z_to_save_test = (self.z_test.flatten(0,1) * 2) -1
         
         self.x_tilde = self.x_tilde.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])

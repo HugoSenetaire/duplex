@@ -152,7 +152,7 @@ class PathWiseSelectorModel(BaseModel):
         
         # Create mixed images
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
-        self.x_tilde_test = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
+        self.x_tilde_notemp = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
 
 
         self.z_to_save = (self.z.flatten(0,1) * 2) -1

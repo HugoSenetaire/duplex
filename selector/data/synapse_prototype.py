@@ -49,7 +49,6 @@ def make_dataset(
 
     for root, _, fnames in sorted(os.walk(dir)):
         for fname in fnames:
-            sample_number = int(fname.split(".")[0])
             if is_image_file(fname):
                 path = os.path.join(root, fname)
                 # Check the counterfactual directory for the same file
@@ -77,7 +76,7 @@ class SynapseFolderDataset(Dataset):
         self.prediction_root = os.path.join(root, "predictions")
 
         self.original_predictions = pd.read_csv(
-            os.path.join(self.prediction_root, "originals.csv")
+            os.path.join(self.prediction_root, "originals.csv"), index_col=0
         )
 
         imgs, counterfactuals = make_dataset(

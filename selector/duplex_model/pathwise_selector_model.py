@@ -43,10 +43,10 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_test", "acc_test"]
+        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_test', 'x_tilde_test']
+        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
 
         # check args consistency
         # NA for Now
@@ -63,7 +63,7 @@ class PathWiseSelectorModel(BaseModel):
         
         
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
-        self.p_z_test = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
+        self.p_z_notemp = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
 
         if self.isTrain:  # define classifiers
             self.netf_theta = init_network(
@@ -97,8 +97,9 @@ class PathWiseSelectorModel(BaseModel):
         self.x = input['x'].to(self.device)
         self.y = input['y'].to(self.device)
 
-        self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cp here ?
+        self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cf here ?
         self.y_cf = input['y_cf'].to(self.device) 
+
         self.image_paths = input['x_paths']
         self.image_cf_path = input['x_cf_paths']
 
@@ -107,13 +108,19 @@ class PathWiseSelectorModel(BaseModel):
         Define the number of samples to draw from the mask distribution.
         Depending on the training/testing phase, the number of samples is different.
         Note that the evaluation of the likelihood is dependent on the number of mask samples.
+
+        MC Sample: Number of samples to draw from the mask distribution that will reduce the Monte Carlo estimate variance
+        IMP sample: Importance sampling to reduce the bias of the likelihood estimate (see Burda et al. 2015 Importance Weighted Autoencoders)
+
         """
         if self.netg_gamma.training:
             self.mc_sample_z = self.opt.mc_sample_z
             self.imp_sample_z = self.opt.imp_sample_z
         else:
-            self.mc_sample_z = self.opt.mc_sample_z_test
-            self.imp_sample_z = self.opt.imp_sample_z_test
+            self.mc_sample_z = self.opt.mc_sample_z_notemp
+            self.imp_sample_z = self.opt.imp_sample_z_notemp
+        
+        self.sample_z = self.mc_sample_z * self.imp_sample_z
     
 
     def forward(self):
@@ -123,67 +130,87 @@ class PathWiseSelectorModel(BaseModel):
         
         # Calculate the mask distribution parameter
         try :
-            self.pi = self.netg_gamma(self.x)
+            self.pi_logit = self.netg_gamma(self.x)
         except RuntimeError as e:
             print(e)
             print(self.x.shape)
             raise e
 
+        self.log_pi = F.logsigmoid(self.pi_logit)
 
         # Sample from the mask distribution
-        self.z = self.p_z.rsample(self.mc_sample_z, self.pi) # Need Rsample here to allow pathwise estimation
-        self.z = self.z.reshape(self.mc_sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+        self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
+        self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
 
 
         # Sample
-        self.z_test = self.p_z_test.sample(self.mc_sample_z, self.pi) # Need Rsample here to allow pathwise estimation
-        self.z_test = self.z_test.reshape(self.mc_sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+        self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
+        self.z_notemp = self.z_notemp.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
         # Expand the input images to match the shape of the mask samples
-        self.x_expanded = self.x.unsqueeze(0).expand(self.mc_sample_z, *self.x.shape)
-        self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.mc_sample_z, *self.x_cf.shape)
+        self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
+        self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x_cf.shape)
         
         # Create mixed images
-        # self.x_tilde = (self.x_expanded * self.z - (self.z - 1) ).flatten(0,1)
-        # self.x_tilde_test = (self.x_expanded * self.z_test - (self.z - 1)).flatten(0,1)
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
-        self.x_tilde_test = (self.x_expanded * self.z_test + (1 - self.z_test) * self.x_cf_expanded).flatten(0,1)
+        self.x_tilde_test = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
 
 
         self.z_to_save = (self.z.flatten(0,1) * 2) -1
-        self.pi_to_save = (self.pi.sigmoid() * 2) -1
-        self.z_to_save_test = (self.z_test.flatten(0,1) * 2) -1
+        self.pi_to_save = (self.log_pi.exp() * 2) -1
+        self.z_to_save_notemp = (self.z_notemp.flatten(0,1) * 2) -1
         
-        self.x_tilde = self.x_tilde.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])
-        self.x_tilde_test = self.x_tilde_test.reshape(self.mc_sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde = self.x_tilde.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde_notemp = self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         
         # Calculate the classifier output on the mixed images
         self.y_tilde = self.netf_theta(self.x_tilde)
-        self.y_tilde_test = self.netf_theta(self.x_tilde_test)
-        self.y_tilde = self.y_tilde.reshape(self.mc_sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
-        self.y_tilde_test = self.y_tilde_test.reshape(self.mc_sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+        self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
+        self.y_tilde = self.y_tilde.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+        self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
         
 
 
-        self.y_expanded = self.y.unsqueeze(0).expand(self.mc_sample_z, *self.y.shape)
+        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
 
 
     def backward_g_gamma(self):
         """Calculate the loss selector NN g_gamma"""
         # Regularization
-        self.loss_reg =  self.pi.sigmoid().reshape(self.x.shape[0], *self.x.shape[1:]).mean(0).mean()
+        self.loss_reg =  self.z.reshape(self.x.shape[0]*self.sample_z, *self.x.shape[1:]).mean(0).mean()
 
+        # Quantile metrix
+        self.quantile_pi_25 = self.log_pi.exp().flatten().quantile(0.25)
+        self.quantile_pi_50 = self.log_pi.exp().flatten().quantile(0.50)
+        self.quantile_pi_75 = self.log_pi.exp().flatten().quantile(0.75)
 
         
+        # Accuracy metrics
         self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
-        self.loss_acc_test = (self.y_tilde_test.argmax(-1) == self.y_expanded).float().mean()
-        # Likelihood guidance 
-        self.loss_class = F.cross_entropy(self.y_tilde.reshape(self.mc_sample_z*self.x.shape[0], self.opt.f_theta_output_classes), self.y_expanded.reshape(self.mc_sample_z*self.x.shape[0]), reduction='mean')
-        self.loss_class_test = F.cross_entropy(self.y_tilde_test.reshape(self.mc_sample_z*self.x.shape[0], self.opt.f_theta_output_classes), self.y_expanded.reshape(self.mc_sample_z*self.x.shape[0]), reduction='mean')
+        self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().mean()
 
+
+        # Likelihood guidance 
+        self.loss_class = F.cross_entropy(
+            self.y_tilde.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
+            self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
+            reduction='none')
+        self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
+        
+        
+        # Likelihood guidance but without temperature relaxation
+        self.loss_class_notemp = F.cross_entropy(
+            self.y_tilde_notemp.reshape(self.sample_z*self.x.shape[0],self.opt.f_theta_output_classes),
+            self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
+            reduction='none')
+        self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
+        
+
+        # Total loss
         self.loss_total = self.loss_class + self.lambda_regularization * self.loss_reg
         self.loss_total.backward()
+
        
 
 

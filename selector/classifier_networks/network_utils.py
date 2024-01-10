@@ -14,7 +14,7 @@ def init_network(checkpoint_path=None, input_shape=(128,128), net_module="Vgg2D"
 
     aux_net: name of aux net
     """
-    net_mod = importlib.import_module(f"dapi_networks.{net_module}")
+    net_mod = importlib.import_module(f"classifier_networks.{net_module}")
     net_class = getattr(net_mod, f'{net_module}')
     if net_module == "Vgg2D":
         net = net_class(input_size=input_shape, input_channels=input_nc, output_classes=output_classes,

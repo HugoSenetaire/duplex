@@ -57,10 +57,10 @@ class MnistDuckDataset(BaseDataset):
         transform_params = get_params(self.opt, x.size)
 
         x_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
-        x_cf_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
+        # x_cf_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
 
         x = x_transform(x).reshape(1, 32, 32)
-        x_cf = x_cf_transform(x_cf).reshape(1, 32, 32)
+        x_cf = x_transform(x_cf).reshape(1, 32, 32)
 
         y = torch.tensor(y)
         y_cf = torch.tensor(y_cf)

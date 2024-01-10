@@ -1,1 +1,5 @@
 .DS*
+*/checkpoints
+build/
+__pycache__/
+*.egg-info

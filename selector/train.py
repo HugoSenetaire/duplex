@@ -34,6 +34,8 @@ if __name__ == '__main__':
         dataset_val = None
     dataset_size = len(dataset)    # get the number of images in the dataset.
     dataset_size_val = len(dataset_val) if dataset_val is not None else 0
+
+    
     print('The number of training images = %d' % dataset_size)
     print('The number of validation images = %d' % dataset_size_val)
 
@@ -63,6 +65,12 @@ if __name__ == '__main__':
             aggregated_losses = model.get_aggregated_losses()
             visualizer.print_current_losses(epoch, epoch_iter, aggregated_losses, 0, 0, total_iters, prefix='val/')
             model.reset_aggregated_losses()
+
+            witness_sample, witness_label= dataset_val.dataset.get_witness_sample()
+            model.set_input(witness_sample)
+            model.evaluate()
+            visualizer.witness_sample(total_iters, model.get_current_visuals(), witness_label,)
+
 
 
         for i, data in enumerate(dataset):  # inner loop within one epoch

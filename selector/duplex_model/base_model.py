@@ -74,10 +74,10 @@ class BaseModel(ABC):
         pass
 
     @abstractmethod
-    def calculate_losses(self):
+    def calculate_batched_loss(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
-    
+
     @abstractmethod
     def optimize_parameters(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""

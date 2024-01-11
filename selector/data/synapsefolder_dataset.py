@@ -7,11 +7,14 @@ The data is expected to be organized as `{root}/{image_type}/{class_name}/{sampl
 - `sample_number` is the number of the sample.
 """
 import albumentations as A
+import albumentations.pytorch as apytorch
 import os
 from torch.utils.data import Dataset
 from PIL import Image
 import pandas as pd
 import numpy as np
+from data.base_dataset import BaseDataset
+import torch
 
 IMG_EXTENSIONS = [
     ".jpg",
@@ -63,17 +66,19 @@ def make_dataset(
 
 
 def default_loader(path):
-    return np.array(Image.open(path))[
+    return np.array(Image.open(path), dtype=np.float32)[
         ..., 0
     ]  # It's a grayscale image, so we only need one channel
 
 
-class SynapseFolderDataset(Dataset):
-    def __init__(self, root, augment=True):
-        self.root = root
-        self.original_root = os.path.join(root, "original")
-        self.counterfactual_root = os.path.join(root, "counterfactual")
-        self.prediction_root = os.path.join(root, "predictions")
+class SynapseFolderDataset(BaseDataset):
+    def __init__(self, opt, split):
+        super().__init__(opt)
+        self.augment = (not opt.no_augment)
+        self.root = os.path.join(opt.dataroot, split)
+        self.original_root = os.path.join(self.root, "original")
+        self.counterfactual_root = os.path.join(self.root, "counterfactual")
+        self.prediction_root = os.path.join(self.root, "predictions")
 
         self.original_predictions = pd.read_csv(
             os.path.join(self.prediction_root, "originals.csv"), index_col=0
@@ -85,7 +90,7 @@ class SynapseFolderDataset(Dataset):
         if len(imgs) == 0:
             raise (
                 RuntimeError(
-                    "Found 0 images in: " + root + "\n"
+                    "Found 0 images in: " + self.root + "\n"
                     "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)
                 )
             )
@@ -99,28 +104,50 @@ class SynapseFolderDataset(Dataset):
             )
         self.imgs = imgs
         self.counterfactuals = counterfactuals
-        if augment:
+        
+        
+        if self.augment:
             self.transform = A.Compose(
                 [
                     A.HorizontalFlip(p=0.5),
                     A.VerticalFlip(p=0.5),
                     A.RandomRotate90(p=0.5),
-                ]
+                    apytorch.transforms.ToTensorV2(),
+
+                ],
+                additional_targets={"image1": "image",},
+
             )
         else:
-            self.transform = lambda x: x
+            self.transform = A.Compose(
+            [
+                apytorch.transforms.ToTensorV2()
+            ],
+            additional_targets={"image1": "image",},
+        )
+
+        
+        # assert False
         # TODO might need to convert to tensor from here
+            
+    def __len__(self):
+        return len(self.imgs)
+    
 
     def __getitem__(self, index):
         path = self.imgs[index]
         counterfactual_path = self.counterfactuals[index]
-        image = default_loader(path)
-        counterfactual = default_loader(counterfactual_path)
-        if self.transform is not None:
-            transformed = self.transform(image=image, xcf=counterfactual)
+        image = default_loader(path)/255 *2 -1
+        counterfactual = default_loader(counterfactual_path)/255 *2 -1
+        # if self.transform is not None:
+        transformed = self.transform(image=image, image1=counterfactual)
         # TODO might need to change the names based on expectations from selector
-        transformed["y"] = np.argmax(self.original_predictions.iloc[index])
-        transformed["ycf"] = (transformed["y"] + 1)  % 6
-        transformed["x_path"] = None
-        transformed["xcf_path"] = None
+
+        transformed["y"] = torch.tensor(np.argmax(self.original_predictions.iloc[index].to_numpy()))
+        transformed["y_cf"] = (transformed["y"] + 1)  % 6
+        # transformed["x_paths"] = "None"
+        # transformed["x_cf_paths"] = "None"
+        transformed["x"] = transformed["image"]
+        transformed["x_cf"] = transformed["image1"]
         return transformed
+    

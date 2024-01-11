@@ -43,7 +43,7 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp"]
+        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp", "acc_no_selector"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
@@ -165,9 +165,11 @@ class PathWiseSelectorModel(BaseModel):
         # Calculate the classifier output on the mixed images
         self.y_tilde = self.netf_theta(self.x_tilde)
         self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
+        self.y_no_selector = self.netf_theta(self.x)
+
         self.y_tilde = self.y_tilde.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
-
+        self.y_no_selector = self.y_no_selector.reshape(self.x.shape[0], self.opt.f_theta_output_classes)
         
 
 
@@ -188,6 +190,7 @@ class PathWiseSelectorModel(BaseModel):
         # Accuracy metrics
         self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
         self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().mean()
+        self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().mean()
 
 
         # Likelihood guidance 

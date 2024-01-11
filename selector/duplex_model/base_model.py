@@ -12,7 +12,8 @@ class BaseModel(ABC):
         -- <__init__>:                      initialize the class; first call BaseModel.__init__(self, opt).
         -- <set_input>:                     unpack data from dataset and apply preprocessing.
         -- <forward>:                       produce intermediate results.
-        -- <optimize_parameters>:           calculate losses, gradients, and update network weights.
+        -- <calculate_losses>:              calculate losses batched losses
+        -- <optimize_parameters>:           calculate gradients, and update network weights.
         -- <modify_commandline_options>:    (optionally) add model-specific options and set default options.
     """
 
@@ -43,6 +44,7 @@ class BaseModel(ABC):
         self.optimizers = []
         self.image_paths = []
         self.metric = 0  # used for learning rate policy 'plateau'
+        self.aggregated = False
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -72,8 +74,18 @@ class BaseModel(ABC):
         pass
 
     @abstractmethod
+    def calculate_losses(self):
+        """Calculate losses, gradients, and update network weights; called in every training iteration"""
+        pass
+    
+    @abstractmethod
     def optimize_parameters(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
+        pass
+
+    @abstractmethod
+    def evaluate(self):
+        """Calculate losses per batched and aggregate; called in every eval iteration"""
         pass
 
     def setup(self, opt):
@@ -134,12 +146,53 @@ class BaseModel(ABC):
         return visual_ret
 
     def get_current_losses(self):
-        """Return traning losses / errors. train.py will print out these errors on console, and save them to a file"""
+        """Return traning batched losses / errors. train.py will average them and print out these errors on console, and save them to a file"""
         errors_ret = OrderedDict()
         for name in self.loss_names:
             if isinstance(name, str):
-                errors_ret[name] = float(getattr(self, 'loss_' + name))  # float(...) works for both scalar tensor and float number
+                errors_ret[name] = float(getattr(self, 'loss_' + name).mean())  # float(...) works for both scalar tensor and float number
         return errors_ret
+    
+    def get_current_batched_losses(self):
+        """Return traning batched losses / errors. train.py will average them and print out these errors on console, and save them to a file"""
+        errors_ret = OrderedDict()
+        for name in self.loss_names:
+            if isinstance(name, str):
+                errors_ret[name] = getattr(self, 'loss_' + name)
+        return errors_ret
+
+    def aggregate_losses(self, losses):
+        """Perform a runnning mean on the aggregated loss.
+
+
+        Parameters:
+            losses (dict): dictionary of losses from single batch
+        """
+        if not hasattr(self, "loss_aggregate"):
+            self.loss_aggregate = {}
+            for k, v in losses.items():
+                self.loss_aggregate[k] = 0
+            self.seen_samples = 0
+
+        for k, v in losses.items():
+            try :
+                current_sample_size = v.shape[0]
+            except TypeError:
+                print(k)
+            
+            self.loss_aggregate[k] = (self.loss_aggregate[k] * self.seen_samples + current_sample_size * v.mean()) / (self.seen_samples + current_sample_size)
+            self.seen_samples += current_sample_size
+
+
+    def get_aggregated_losses(self):
+        """Return aggregated losses"""
+        return self.loss_aggregate    
+    
+    def reset_aggregated_losses(self):
+        """Reset aggregated losses"""
+        for k in self.loss_aggregate.keys():
+            self.loss_aggregate[k] = 0
+        self.seen_samples = 0
 
     def get_current_aux_infos(self):
         pass

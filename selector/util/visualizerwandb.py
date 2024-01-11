@@ -93,7 +93,7 @@ class VisualizerWandb():
         
 
     # losses: same format as |losses| of plot_current_losses
-    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None):
+    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None, prefix="train/"):
         """print current losses on console; log to wandb; also save the losses to the disk
 
         Parameters:
@@ -104,9 +104,9 @@ class VisualizerWandb():
             t_comp (float) -- computational time per data point (normalized by batch_size)
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
-        message = 'epoch: %d, iters: %d, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, total_iter, t_comp, t_data)
+        message = prefix + 'epoch: %d, iters: %d, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, total_iter, t_comp, t_data)
         for k, v in losses.items():
-            self.logger.log({k: v}, step=total_iter)
+            self.logger.log({prefix+k: v}, step=total_iter)
             message += '%s: %.3f, ' % (k, v)
         if aux_infos is not None:
             for k, v in aux_infos.items():

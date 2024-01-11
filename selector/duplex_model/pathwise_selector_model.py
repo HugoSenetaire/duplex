@@ -43,7 +43,7 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp", "acc_no_selector", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
+        self.loss_names = ["class", "reg", "acc", "class_notemp", "class_no_selector", "acc_notemp", "acc_no_selector", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
@@ -206,6 +206,11 @@ class PathWiseSelectorModel(BaseModel):
             reduction='none')
         self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
 
+        # Likelihood no selector
+        self.loss_class_no_selector = F.cross_entropy(
+            self.y_no_selector,
+            self.y,
+            reduction='none').reshape(self.x.shape[0])
 
 
     def backward_g_gamma(self):

@@ -132,7 +132,6 @@ class PathWiseSelectorModel(BaseModel):
         self.define_nb_sample()
         
         # Calculate the mask distribution parameter
-        print(self.x)
         self.pi_logit = self.netg_gamma(self.x)
 
         self.log_pi = F.logsigmoid(self.pi_logit)
@@ -176,6 +175,7 @@ class PathWiseSelectorModel(BaseModel):
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
     
     def calculate_batched_loss(self):
+        """Calculate losses, gradients, and update network weights; called in every training iteration"""
         # Regularization
         self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 

@@ -260,11 +260,17 @@ class BaseModel(ABC):
                 state_dict = torch.load(load_path, map_location=str(self.device))
                 if hasattr(state_dict, '_metadata'):
                     del state_dict._metadata
-
                 # patch InstanceNorm checkpoints prior to 0.4
-                for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-                    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
-                net.load_state_dict(state_dict)
+                # for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
+                    # self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
+                try :
+                    net.load_state_dict(state_dict)
+                except RuntimeError:
+                    # TODO : remove this when possible, it's poorly save in dataparallel ?
+                    for key in list(state_dict.keys()):
+                        state_dict[key.split("module.")[1]] = state_dict[key]
+                        del state_dict[key]
+                    net.load_state_dict(state_dict)
 
     def print_networks(self, verbose):
         """Print the total number of parameters in the network and (if verbose) network architecture

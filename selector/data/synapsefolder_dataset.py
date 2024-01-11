@@ -106,7 +106,7 @@ class SynapseFolderDataset(BaseDataset):
         self.counterfactuals = counterfactuals
         
         
-        if self.augment:
+        if self.augment and self.split == "train":
             self.transform = A.Compose(
                 [
                     A.HorizontalFlip(p=0.5),
@@ -142,8 +142,11 @@ class SynapseFolderDataset(BaseDataset):
         # if self.transform is not None:
         transformed = self.transform(image=image, image1=counterfactual)
         # TODO might need to change the names based on expectations from selector
-
-        transformed["y"] = torch.tensor(np.argmax(self.original_predictions.iloc[index].to_numpy()))
+        try :
+            transformed["y"] = torch.tensor(np.argmax(self.original_predictions.iloc[index].to_numpy()))
+        except Exception as e:
+            aux_index = int(self.imgs[index].split("/")[-2].split("_")[0])
+            transformed["y"] = torch.tensor(aux_index, dtype=torch.long)
         transformed["y_cf"] = (transformed["y"] + 1)  % 6
         # transformed["x_paths"] = "None"
         # transformed["x_cf_paths"] = "None"

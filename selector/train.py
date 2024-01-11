@@ -22,12 +22,20 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from duplex_model import create_model
 from util.visualizerwandb import VisualizerWandb
+import tqdm
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
     dataset = create_dataset(opt, split='train')  # create a dataset given opt.dataset_mode and other options
+    try :
+        dataset_val = create_dataset(opt, split='val')  # create a dataset given opt.dataset_mode and other options
+    except:
+        print("No validation dataset found")
+        dataset_val = None
     dataset_size = len(dataset)    # get the number of images in the dataset.
+    dataset_size_val = len(dataset_val) if dataset_val is not None else 0
     print('The number of training images = %d' % dataset_size)
+    print('The number of validation images = %d' % dataset_size_val)
 
     print("Creating model")
     model = create_model(opt)      # create a model given opt.model and other options
@@ -38,11 +46,24 @@ if __name__ == '__main__':
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
+
     for epoch in range(opt.epoch_count, opt.n_epochs + opt.n_epochs_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         epoch_iter = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
         visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
+
+
+        if dataset_val is not None:
+            dic_loss_aggregate = {}
+            pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
+            for i, data in pbar:
+                model.set_input(data)
+                model.evaluate()
+            aggregated_losses = model.get_aggregated_losses()
+            visualizer.print_current_losses(epoch, epoch_iter, aggregated_losses, 0, 0, total_iters, prefix='val/')
+            model.reset_aggregated_losses()
+
 
         for i, data in enumerate(dataset):  # inner loop within one epoch
             iter_start_time = time.time()  # timer for computation per iteration

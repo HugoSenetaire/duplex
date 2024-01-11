@@ -174,23 +174,21 @@ class PathWiseSelectorModel(BaseModel):
 
 
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
-
-
-    def backward_g_gamma(self):
-        """Calculate the loss selector NN g_gamma"""
+    
+    def calculate_batched_loss(self):
         # Regularization
-        self.loss_reg =  self.z.reshape(self.x.shape[0]*self.sample_z, *self.x.shape[1:]).mean(0).mean()
+        self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
         # Quantile metrix
-        self.loss_quantile_pi_25 = self.log_pi.exp().flatten().quantile(0.25)
-        self.loss_quantile_pi_50 = self.log_pi.exp().flatten().quantile(0.50)
-        self.loss_quantile_pi_75 = self.log_pi.exp().flatten().quantile(0.75)
+        self.loss_quantile_pi_25 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.25, dim=1)
+        self.loss_quantile_pi_50 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.50, dim=1)
+        self.loss_quantile_pi_75 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.75, dim=1)
 
         
         # Accuracy metrics
-        self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().mean()
-        self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().mean()
-        self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().mean()
+        self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
+        self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
+        self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().reshape(self.x.shape[0])
 
 
         # Likelihood guidance 
@@ -198,7 +196,7 @@ class PathWiseSelectorModel(BaseModel):
             self.y_tilde.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
-        self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
+        self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
         
         
         # Likelihood guidance but without temperature relaxation
@@ -206,13 +204,23 @@ class PathWiseSelectorModel(BaseModel):
             self.y_tilde_notemp.reshape(self.sample_z*self.x.shape[0],self.opt.f_theta_output_classes),
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
-        self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean()
-        
+        self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
+
+
+
+    def backward_g_gamma(self):
+        """Calculate the loss selector NN g_gamma"""
 
         # Total loss
-        self.loss_total = self.loss_class + self.lambda_regularization * self.loss_reg
+        self.loss_total = self.loss_class.mean() + self.lambda_regularization * self.loss_reg.mean()
         self.loss_total.backward()
 
+    def evaluate(self):
+        with torch.no_grad():
+            self.forward()
+            self.calculate_batched_loss()
+            batched_losses = self.get_current_batched_losses()
+            self.aggregate_losses(batched_losses,)
        
 
 
@@ -220,6 +228,7 @@ class PathWiseSelectorModel(BaseModel):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         # forward
         self.forward()      # Compute mask and mixed images
+        self.calculate_batched_loss()
         self.set_requires_grad([self.netg_gamma,], True)
         self.optimizer_selector.zero_grad()  # set g_gamma's gradients to zero
         self.backward_g_gamma()             # calculate gradients g_gamma

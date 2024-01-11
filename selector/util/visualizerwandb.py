@@ -8,7 +8,7 @@ from subprocess import Popen, PIPE
 import wandb
 import torchvision
 import time
-    
+import matplotlib.pyplot as plt
 
 
 
@@ -52,6 +52,34 @@ class VisualizerWandb():
     def reset(self):
         pass
 
+    def witness_sample(self, total_iter, sample, label):
+        """
+        log specific witness sample along training. 
+        Such samples come from the validation set and are used to monitor the training process.
+        It should have at least one sample per class.
+
+        Parameters:
+            total_iter (int) - - the total iteration during training (not reset to 0)
+            sample (OrderedDict) - - dictionary of images to display or save
+            label (List) - - list of labels for each image
+        """
+        fig, axs = plt.subplots(nrows=len(label), ncols=len(sample), figsize=(len(sample)*4, len(label)*4))
+        for j, (k, v) in enumerate(sample.items()):
+            assert len(v) == len(label)
+            for i in range(len(label)):
+                axs[i, j].imshow(util.tensor2im(v[i,None]))
+                axs[i, j].axis('off')
+                if i == 0 :
+                    if j == 0:
+                        axs[i, j].set_title(k + "     " + str(label[i]), fontsize=20)
+                    else:
+                        axs[i, j].set_title(k, fontsize=20)
+                if j == 0:
+                    axs[i, j].set_title(label[i], fontsize=20)
+
+        self.logger.log({"witness": [wandb.Image(fig)]}, step=total_iter)
+        plt.close(fig)
+        
 
     def display_current_results(self, visuals, epoch, save_result, total_iter):
         """
@@ -62,13 +90,14 @@ class VisualizerWandb():
             epoch (int) - - the current epoch
             save_result (bool) - - if save the current results to an HTML file
             total_iter (int) - - the total iteration during training (not reset to 0)
+
         """
+
         for label, image in visuals.items():
             if save_result :
                 image_numpy = util.tensor2im(image)
                 img_path = os.path.join(self.image_dir, 'epoch%.3d_iter_%d_%s.png' % (epoch, total_iter, label))
                 util.save_image(image_numpy, img_path)
-
             tosave = image[:64]
             grid_image = torchvision.utils.make_grid(tosave)
             self.logger.log({label: [wandb.Image(grid_image)]}, step=total_iter)
@@ -93,7 +122,7 @@ class VisualizerWandb():
         
 
     # losses: same format as |losses| of plot_current_losses
-    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None):
+    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None, prefix="train/"):
         """print current losses on console; log to wandb; also save the losses to the disk
 
         Parameters:
@@ -104,9 +133,9 @@ class VisualizerWandb():
             t_comp (float) -- computational time per data point (normalized by batch_size)
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
-        message = 'epoch: %d, iters: %d, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, total_iter, t_comp, t_data)
+        message = prefix + 'epoch: %d, iters: %d, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, total_iter, t_comp, t_data)
         for k, v in losses.items():
-            self.logger.log({k: v}, step=total_iter)
+            self.logger.log({prefix+k: v}, step=total_iter)
             message += '%s: %.3f, ' % (k, v)
         if aux_infos is not None:
             for k, v in aux_infos.items():

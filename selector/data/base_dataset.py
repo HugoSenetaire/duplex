@@ -5,6 +5,7 @@ It also includes common transformation functions (e.g., get_transform, __scale_w
 import random
 import numpy as np
 import torch.utils.data as data
+import torch
 from PIL import Image
 import torchvision.transforms as transforms
 from abc import ABC, abstractmethod
@@ -20,7 +21,7 @@ class BaseDataset(data.Dataset, ABC):
     -- <modify_commandline_options>:    (optionally) add dataset-specific options and set default options.
     """
 
-    def __init__(self, opt):
+    def __init__(self, opt, split = 'train'):
         """Initialize the class; save the options in the class
 
         Parameters:
@@ -28,6 +29,10 @@ class BaseDataset(data.Dataset, ABC):
         """
         self.opt = opt
         self.root = opt.dataroot
+        self.split = split
+        self.witness_samples = None
+        self.witness_labels = None
+
 
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -58,6 +63,48 @@ class BaseDataset(data.Dataset, ABC):
             a dictionary of data with their names. It ususally contains the data itself and its metadata information.
         """
         pass
+
+    def create_witness_sample(self, nb_sample =1):
+        """
+        We create witness samples (one from each output class) and store it in the dataset
+        This is used to monitor the training process.
+
+        Parameters:
+            nb_sample - - number of witness samples to create
+        """
+        dic_seen = {}
+        self.witness_samples = []
+        self.witness_labels = []
+
+        index = 0
+        while len(self.witness_samples)<self.opt.f_theta_output_classes and index<len(self):
+            sample = self.__getitem__(index)
+            label = sample['y'].item()
+            if label not in dic_seen:
+                dic_seen[label] = True
+                self.witness_samples.append(index)
+                self.witness_labels.append(label)
+            index+=1
+        # Sort the witness samples by label
+        self.witness_samples = [x for _,x in sorted(zip(self.witness_labels,self.witness_samples))]
+        self.witness_labels = sorted(self.witness_labels)
+
+        # Collate fn the selected indexes
+        self.witness_samples = [self.__getitem__(x) for x in self.witness_samples]
+        self.witness_samples = torch.utils.data.dataloader.default_collate(self.witness_samples)
+        if self.witness_labels != list(range(self.opt.f_theta_output_classes)):
+            raise ValueError("Witness samples should have one sample per class")
+            
+        
+
+    def get_witness_sample(self):
+        """
+        Return the witness samples and labels
+        """
+        if self.witness_samples is None or self.witness_labels is None:
+            self.create_witness_sample()
+        return self.witness_samples, self.witness_labels
+        
 
 
 def get_params(opt, size):

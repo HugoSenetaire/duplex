@@ -43,7 +43,7 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp", "acc_no_selector"]
+        self.loss_names = ["class", "reg", "acc", "class_notemp", "acc_notemp", "acc_no_selector", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
@@ -182,9 +182,9 @@ class PathWiseSelectorModel(BaseModel):
         self.loss_reg =  self.z.reshape(self.x.shape[0]*self.sample_z, *self.x.shape[1:]).mean(0).mean()
 
         # Quantile metrix
-        self.quantile_pi_25 = self.log_pi.exp().flatten().quantile(0.25)
-        self.quantile_pi_50 = self.log_pi.exp().flatten().quantile(0.50)
-        self.quantile_pi_75 = self.log_pi.exp().flatten().quantile(0.75)
+        self.loss_quantile_pi_25 = self.log_pi.exp().flatten().quantile(0.25)
+        self.loss_quantile_pi_50 = self.log_pi.exp().flatten().quantile(0.50)
+        self.loss_quantile_pi_75 = self.log_pi.exp().flatten().quantile(0.75)
 
         
         # Accuracy metrics

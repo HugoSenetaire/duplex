@@ -74,7 +74,7 @@ class PathWiseSelectorModel(BaseModel):
                 net_module=opt.f_theta_net,
                 input_nc=opt.f_theta_input_nc,
                 output_classes=opt.f_theta_output_classes,
-                downsample_factors=[(2, 2), (2, 2), (1, 1), (1, 1)]
+                downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)]
                 ).to(self.device)
             
 

@@ -56,7 +56,7 @@ class VisualizerWandb():
         """
         log specific witness sample along training. 
         Such samples come from the validation set and are used to monitor the training process.
-        It should have at least one sample per class.
+        We should save at least one witness sample per class.
 
         Parameters:
             total_iter (int) - - the total iteration during training (not reset to 0)
@@ -122,8 +122,8 @@ class VisualizerWandb():
         
 
     # losses: same format as |losses| of plot_current_losses
-    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None, prefix="train/"):
-        """print current losses on console; log to wandb; also save the losses to the disk
+    def print_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, dataloader_size, aux_infos=None, prefix="train/"):
+        """print current losses on console; also save the losses to the disk
 
         Parameters:
             epoch (int) -- current epoch
@@ -133,9 +133,8 @@ class VisualizerWandb():
             t_comp (float) -- computational time per data point (normalized by batch_size)
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
-        message = prefix + 'epoch: %d, iters: %d, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, total_iter, t_comp, t_data)
+        message = prefix + 'epoch: %d, iters: %d, dataloader:%s, total_iter:%d, time: %.3f, data: %.3f, ' % (epoch, iters, dataloader_size, total_iter, t_comp, t_data)
         for k, v in losses.items():
-            self.logger.log({prefix+k: v}, step=total_iter)
             message += '%s: %.3f, ' % (k, v)
         if aux_infos is not None:
             for k, v in aux_infos.items():
@@ -145,3 +144,17 @@ class VisualizerWandb():
         with open(self.log_name, "a") as log_file:
             log_file.write('%s\n' % message)  # save the message
 
+    def log_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None, prefix="train/"):
+        """log current losses to wandb; 
+
+        Parameters:
+            epoch (int) -- current epoch
+            iters (int) -- current training iteration during this epoch (reset to 0 at the end of every epoch)
+            total_iter (int) -- total training iteration (not reset to 0)
+            losses (OrderedDict) -- training losses stored in the format of (name, float) pairs
+            t_comp (float) -- computational time per data point (normalized by batch_size)
+            t_data (float) -- data loading time per data point (normalized by batch_size)
+        """
+        for k, v in losses.items():
+            self.logger.log({prefix+k: v}, step=total_iter)
+           

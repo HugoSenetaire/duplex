@@ -52,23 +52,25 @@ if __name__ == '__main__':
     for epoch in range(opt.epoch_count, opt.n_epochs + opt.n_epochs_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
-        epoch_iter = 0                  # the number of training iterations in current epoch, reset to 0 every epoch
         visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
 
 
         if dataset_val is not None:
+            # Validation every epoch
             dic_loss_aggregate = {}
             pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
             for i, data in pbar:
                 model.set_input(data)
                 model.evaluate()
             aggregated_losses = model.get_aggregated_losses()
-            visualizer.print_current_losses(epoch, epoch_iter, aggregated_losses, 0, 0, total_iters, prefix='val/')
+            visualizer.print_current_losses(epoch, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset_val.dataloader), aux_infos=None)
             model.reset_aggregated_losses()
 
+            # Visualize witness samples
             witness_sample, witness_label= dataset_val.dataset.get_witness_sample()
             model.set_input(witness_sample)
             model.evaluate()
+
             visualizer.witness_sample(total_iters, model.get_current_visuals(), witness_label,)
 
 
@@ -78,8 +80,6 @@ if __name__ == '__main__':
             if total_iters % opt.print_freq == 0:
                 t_data = iter_start_time - iter_data_time
 
-            total_iters += opt.batch_size
-            epoch_iter += opt.batch_size
             model.set_input(data)         # unpack data from dataset and apply preprocessing
             model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
@@ -92,9 +92,7 @@ if __name__ == '__main__':
                 losses = model.get_current_losses()
                 aux_infos = model.get_current_aux_infos()
                 t_comp = (time.time() - iter_start_time) / opt.batch_size
-                visualizer.print_current_losses(epoch, epoch_iter, losses, t_comp, t_data, total_iters, aux_infos=aux_infos)
-                if opt.display_id > 0:
-                    visualizer.plot_current_losses(epoch, total_iters, float(epoch_iter) / dataset_size, losses)
+                visualizer.print_current_losses(epoch, i, losses, t_comp, t_data, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=aux_infos)
 
             if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
                 print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
@@ -102,6 +100,8 @@ if __name__ == '__main__':
                 model.save_networks(save_suffix)
 
             iter_data_time = time.time()
+            total_iters += 1
+
         if epoch % opt.save_epoch_freq == 0:              # cache our model every <save_epoch_freq> epochs
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')

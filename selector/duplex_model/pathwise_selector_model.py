@@ -46,7 +46,7 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["class", "reg", "acc", "class_notemp", "class_no_selector", "acc_notemp", "acc_no_selector", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
+        self.loss_names = ["reg", "class", "class_notemp", "class_no_selector", "class_pi", "acc", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save','x_tilde',  'z_to_save_notemp', 'x_tilde_notemp']
@@ -151,7 +151,6 @@ class PathWiseSelectorModel(BaseModel):
         
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
-
         self.log_pi = F.logsigmoid(self.pi_logit)
         # self.log_pi_expanded = self.log_pi.unsqueeze(0).expand(self.sample_z, *self.log_pi.shape)
 
@@ -209,6 +208,7 @@ class PathWiseSelectorModel(BaseModel):
         self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().reshape(self.x.shape[0])
+        self.loss_acc_pi = (self.y_tilde_pi.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
 
 
         # Classification guidance (This is not likelihood anymore...)

@@ -35,15 +35,6 @@ class SynapseNoCFDataset(BaseDataset,):
         """
         Parameters:
             root: root directory of the dataset
-            latent_model_checkpoint_dir: directory with the latent model checkpoint
-            classifier_checkpoint: path to the classifier checkpoint
-            img_size: image size, the image is assumed to be 2D
-            style_dim: style dimension of the Stargan model
-            latent_dim: latent dimensiosn of the Stargan model
-            num_domains: number of classes or domains
-            checkpoint_iter: checkpoint of the Stagan model to load
-            classifier_fmaps: number of feature maps of the classifier
-            batch_size:  number of counterfactuals option to generate
         """
         super().__init__(opt, split)
         root = os.path.join(opt.dataroot, split)

@@ -162,7 +162,7 @@ class BaseModel(ABC):
         return errors_ret
 
     def aggregate_losses(self, losses):
-        """Perform a runnning mean on the aggregated loss.
+        """Perform a runnning mean on the aggregated loss using the new found loss.
 
 
         Parameters:

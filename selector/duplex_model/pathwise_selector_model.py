@@ -32,6 +32,9 @@ class PathWiseSelectorModel(BaseModel):
         parser.add_argument('--model_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[model_suffix].pth will be loaded as the generator.')
         parser.add_argument('--lambda_regularization', type=float, default=0.1, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
+        parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
+                                                                        This is only possible when the imputation method is deterministic (or very simple).')
+        
 
         return parser
 
@@ -46,8 +49,9 @@ class PathWiseSelectorModel(BaseModel):
         self.loss_names = ["class", "reg", "acc", "class_notemp", "class_no_selector", "acc_notemp", "acc_no_selector", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'z_to_save', 'pi_to_save', 'x_tilde', 'z_to_save_notemp', 'x_tilde_notemp']
+        self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save','x_tilde',  'z_to_save_notemp', 'x_tilde_notemp']
 
+        self.use_pi_as_mask = opt.use_pi_as_mask
         # check args consistency
         # NA for Now
 
@@ -93,18 +97,29 @@ class PathWiseSelectorModel(BaseModel):
 
     def set_input(self, input):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
+        Notably, prepare the expanded images and labels used for the samples of mask distribution.
+        #TODO: Could add a function when multiple pairing are available ?
 
         Parameters:
-            input: a dictionary that contains the data itself and its metadata information.
+            input: a dictionary that contains the data itself.
         """
+
+        self.define_nb_sample()
+
         self.x = input['x'].to(self.device)
         self.y = input['y'].to(self.device)
 
         self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cf here ?
         self.y_cf = input['y_cf'].to(self.device) 
 
-        # self.image_paths = input['x_paths']
-        # self.image_cf_path = input['x_cf_paths']
+        # Expand the input images to match the shape of the mask samples
+        self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x.shape)
+        self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
+
+        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+        self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
+
+
 
     def define_nb_sample(self,):
         """
@@ -127,14 +142,18 @@ class PathWiseSelectorModel(BaseModel):
     
 
     def forward(self):
-        """Run forward pass; called by both functions <optimize_parameters> and <test>."""
+        """Run forward pass; called by both functions <optimize_parameters> and <test>.
+            TODO: All the calculation are only necessary when printing the loss, 
+                  one could simplify a lot this function in most of the iteration and 
+                  improve speed.
+        """
 
-        self.define_nb_sample()
         
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
 
         self.log_pi = F.logsigmoid(self.pi_logit)
+        # self.log_pi_expanded = self.log_pi.unsqueeze(0).expand(self.sample_z, *self.log_pi.shape)
 
         # Sample from the mask distribution
         self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
@@ -145,11 +164,10 @@ class PathWiseSelectorModel(BaseModel):
         self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
         self.z_notemp = self.z_notemp.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
-        # Expand the input images to match the shape of the mask samples
-        self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
-        self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x_cf.shape)
+
         
         # Create mixed images
+        self.x_tilde_pi = (self.x_expanded * self.log_pi.unsqueeze(0) + (1 - self.log_pi.unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
         self.x_tilde_notemp = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
 
@@ -160,19 +178,21 @@ class PathWiseSelectorModel(BaseModel):
         
         self.x_tilde = self.x_tilde.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         self.x_tilde_notemp = self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde_pi = self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         
-        # Calculate the classifier output on the mixed images
+        # Calculate the classifier output on the mixed images and the original images
         self.y_tilde = self.netf_theta(self.x_tilde)
         self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
         self.y_no_selector = self.netf_theta(self.x)
+        self.y_tilde_pi = self.netf_theta(self.x_tilde_pi)
 
         self.y_tilde = self.y_tilde.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_no_selector = self.y_no_selector.reshape(self.x.shape[0], self.opt.f_theta_output_classes)
-        
+        self.y_tilde_pi = self.y_tilde_pi.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
 
-        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+
     
     def calculate_batched_loss(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
@@ -190,6 +210,13 @@ class PathWiseSelectorModel(BaseModel):
         self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().reshape(self.x.shape[0])
 
+
+        # Classification guidance (This is not likelihood anymore...)
+        self.loss_class_pi = F.cross_entropy(
+            self.y_tilde_pi.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
+            self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
+            reduction='none')
+        self.loss_class_pi = self.loss_class_pi.reshape(self.sample_z, self.x.shape[0]).mean(0)
 
         # Likelihood guidance 
         self.loss_class = F.cross_entropy(
@@ -217,10 +244,17 @@ class PathWiseSelectorModel(BaseModel):
         """Calculate the loss selector NN g_gamma"""
 
         # Total loss
-        self.loss_total = self.loss_class.mean() + self.lambda_regularization * self.loss_reg.mean()
+        if self.use_pi_as_mask:
+            self.loss_total = self.loss_class_pi.mean() + self.lambda_regularization * self.loss_reg.mean()
+        else :
+            self.loss_total = self.loss_class.mean() + self.lambda_regularization * self.loss_reg.mean()
         self.loss_total.backward()
 
+
     def evaluate(self):
+        """
+        Evaluate the model on the current batch, store and aggregate the losses.
+        """
         with torch.no_grad():
             self.forward()
             self.calculate_batched_loss()

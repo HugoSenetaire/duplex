@@ -108,7 +108,7 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         p = self.netf_theta(xcf).softmax(-1).reshape(self.batch_size_counterfactual_generation, x.shape[0], self.opt.f_theta_output_classes)
         xcf = xcf.reshape(self.batch_size_counterfactual_generation, x.shape[0], *xcf.shape[1:])
         xcf_cat = []
-        for k in range(x.shape[0]):
+        for k in range(x.shape[0]): # TODO: There might be a non stupid way to do this
             current_p = p[:,k]
             # Get the predictions
             predictions = torch.argmax(current_p, dim=-1)
@@ -152,7 +152,9 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         else :
             self.y_cf_expanded = torch.randint_like(self.y_expanded, 0, self.opt.f_theta_output_classes)
             self.x_cf_expanded = self.get_counterfactual(self.x_expanded, self.y_expanded).expand(self.opt.mc_sample_z, *self.x.shape)
-
+            self.x_cf = self.x_cf_expanded[0]
+            self.y_cf = self.y_cf_expanded[0]
+            
         assert self.x_cf_expanded.shape == self.x_expanded.shape, "x_cf_expanded and x_expanded should have the\
               same shape, but have {} and {}".format(self.x_cf_expanded.shape, self.x_expanded.shape)
         self.x_cf_expanded = self.x_cf_expanded.to(self.device)

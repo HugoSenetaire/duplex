@@ -20,12 +20,12 @@ class BaseOptions():
     def initialize(self, parser):
         """Define the common options that are used in both training and test."""
         # basic parameters
-        parser.add_argument('--dataroot', required=True, help='path to images (should have subfolders trainA, trainB, valA, valB, etc)')
+        parser.add_argument('--dataroot', required=True, help='path to images folder')
         parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment. It decides where to store samples and models')
         parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
         # model parameters
-        parser.add_argument('--model', type=str, default='pathwise_selector', help='chooses which model to use. [pathwise_selector | test]')
+        parser.add_argument('--model', type=str, default='pathwise_selector', help='chooses which model to use. [pathwise_selector| pathwise_selector_otf | test]')
 
         # selector parameters
         parser.add_argument('--input_nc', type=int, default=1, help='# of input image channels: 3 for RGB and 1 for grayscale')
@@ -39,14 +39,14 @@ class BaseOptions():
 
         # classifier parameters
         parser.add_argument('--f_theta_checkpoint', type=str, default=None, help='Path to classifier checkpoint to restore weights from')
-        parser.add_argument('--f_theta_input_shape', type=int, nargs='+', default=[32, 32], help='Input shape for classifier')
+        parser.add_argument('--f_theta_input_shape', type=int, nargs='+', default=[128, 128], help='Input shape for classifier')
         parser.add_argument('--f_theta_input_nc', type=int, default=1, help='Input channels for classifier')
         parser.add_argument('--f_theta_net', type=str, default='Vgg2D', help='Name of classifier')
         parser.add_argument('--f_theta_output_classes', type=int, default=6, help='Number of output classes for classifier')
 
 
         # dataset parameters
-        parser.add_argument('--dataset_mode', type=str, default='synapsefolder', help='chooses how datasets are loaded. [mnistduck, synapsefolder]')
+        parser.add_argument('--dataset_mode', type=str, default='synapsefolder', help='chooses how datasets are loaded. [mnistduck, synapsefolder, synapsenocf]')
         parser.add_argument('--no_augment', action='store_true', help='if specified, do not augment the data')
         parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
         parser.add_argument('--num_threads', default=4, type=int, help='# threads for loading data')
@@ -59,7 +59,6 @@ class BaseOptions():
         parser.add_argument('--display_winsize', type=int, default=256, help='display window size for both visdom and HTML')
         # additional parameters
         parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
-        parser.add_argument('--load_iter', type=int, default='0', help='which iteration to load? if load_iter > 0, the code will load models by iter_[load_iter]; otherwise, the code will load models by [epoch]')
         parser.add_argument('--verbose', action='store_true', help='if specified, print more debugging information')
         parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {model}_{net_selector}_size{load_size}')
         self.initialized = True
@@ -75,6 +74,7 @@ class BaseOptions():
         if not self.initialized:  # check if it has been initialized
             parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
             parser = self.initialize(parser)
+
 
         # get the basic options
         opt, _ = parser.parse_known_args(input)

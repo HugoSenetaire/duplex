@@ -174,14 +174,13 @@ class BaseModel(ABC):
                 self.loss_aggregate[k] = 0
             self.seen_samples = 0
 
+        current_sample_size = losses[list(losses.keys())[0]].shape[0]
+
         for k, v in losses.items():
-            try :
-                current_sample_size = v.shape[0]
-            except TypeError:
-                print(k)
+            if v.shape[0] != current_sample_size:
+                raise ValueError("Losses must have same batch size but found {} and {}".format(v.shape[0], current_sample_size, k))
             
             self.loss_aggregate[k] = (self.loss_aggregate[k] * self.seen_samples + current_sample_size * v.mean()) / (self.seen_samples + current_sample_size)
-            self.seen_samples += current_sample_size
 
 
     def get_aggregated_losses(self):

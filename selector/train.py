@@ -64,6 +64,8 @@ if __name__ == '__main__':
                 model.evaluate()
             aggregated_losses = model.get_aggregated_losses()
             visualizer.print_current_losses(epoch, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset_val.dataloader), aux_infos=None)
+            visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
+
             model.reset_aggregated_losses()
 
             # Visualize witness samples
@@ -93,6 +95,10 @@ if __name__ == '__main__':
                 aux_infos = model.get_current_aux_infos()
                 t_comp = (time.time() - iter_start_time) / opt.batch_size
                 visualizer.print_current_losses(epoch, i, losses, t_comp, t_data, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=aux_infos)
+
+            if total_iters % opt.log_freq == 0:      # log visualizations and losses to the disk
+                losses = model.get_current_losses()
+                visualizer.log_current_losses(losses = losses, total_iter=total_iters, prefix = 'train/')
 
             if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
                 print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))

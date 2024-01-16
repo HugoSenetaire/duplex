@@ -144,16 +144,13 @@ class VisualizerWandb():
         with open(self.log_name, "a") as log_file:
             log_file.write('%s\n' % message)  # save the message
 
-    def log_current_losses(self, epoch, iters, losses, t_comp, t_data, total_iter, aux_infos=None, prefix="train/"):
+    def log_current_losses(self, losses, total_iter, prefix="train/"):
         """log current losses to wandb; 
 
         Parameters:
-            epoch (int) -- current epoch
-            iters (int) -- current training iteration during this epoch (reset to 0 at the end of every epoch)
             total_iter (int) -- total training iteration (not reset to 0)
             losses (OrderedDict) -- training losses stored in the format of (name, float) pairs
-            t_comp (float) -- computational time per data point (normalized by batch_size)
-            t_data (float) -- data loading time per data point (normalized by batch_size)
+            prefix (str) -- prefix for the loss name (ie val/ train/ or test/)
         """
         for k, v in losses.items():
             self.logger.log({prefix+k: v}, step=total_iter)

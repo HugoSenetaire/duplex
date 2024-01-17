@@ -8,5 +8,6 @@ setup(
     author='anon',
     packages=[
         'dapi',
-        'dapi_networks'
+        'dapi_networks',
+        'selector'
         ])

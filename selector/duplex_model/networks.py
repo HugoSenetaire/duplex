@@ -343,6 +343,8 @@ class FullyConectedGenerator(nn.Module):
         x = x.view(-1, 1, self.input_size[0], self.input_size[1])
         return x
 
+
+        
 class UnetGenerator(nn.Module):
     """Create a Unet-based generator"""
 
@@ -523,3 +525,113 @@ class PixelDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.net(input)
+
+
+class UpBlock(nn.Module):
+    """Up-sampling block"""
+    def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d):
+        """Construct an up-sampling block
+
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            norm_layer      -- normalization layer
+        """
+        super(UpBlock, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else: 
+            use_bias = norm_layer == nn.InstanceNorm2d
+        
+        self.upconv = nn.ConvTranspose2d(input_nc, output_nc, kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias)
+        self.conv = nn.Conv2d(output_nc, output_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
+        self.uprelu = nn.ReLU(True)
+        self.upnorm = norm_layer(output_nc)
+
+    def forward(self, x):
+        x = self.uprelu(self.upconv(x))
+        x = self.upnorm(self.conv(x))
+        return x
+
+
+class DownBlock(nn.Module):
+    """Down-sampling block"""
+    def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d):
+        """Construct a down-sampling block
+
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            norm_layer      -- normalization layer
+        """
+        super(DownBlock, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        
+        self.conv1 = nn.Conv2d(input_nc, output_nc, kernel_size=4, stride=2, padding=1, bias=use_bias)
+        # self.conv2 = nn.Conv2d(output_nc, output_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
+        self.downrelu = nn.LeakyReLU(0.2)
+        self.downnorm = norm_layer(output_nc)
+
+    def forward(self, x):
+        x = self.downrelu(self.conv1(x))
+        x = self.downnorm(x) 
+        return x
+
+
+class AsymmetricUNetGenerator(nn.Module):
+    """Create a UNet-based generator with a different number of downsampling block and upsampling blocks"""
+
+    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        """Construct the asymmetric UNet generator
+        
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            output_nc (int) -- the number of channels in output images
+            num_downs (int) -- the number of downsamplings in UNet
+            num_ups (int)   -- the number of upsamplings in UNet
+            ngf (int)       -- the number of filters in the last conv layer
+            norm_layer      -- normalization layer
+            use_dropout (bool)  -- if use dropout layers.
+        """
+        # TODO make this asymmetric both ways
+        super(AsymmetricUNetGenerator, self).__init__()
+        # assert num_downs >= num_ups
+
+        num_skips = num_ups
+        pre_base = []
+        post_base = []
+        unet_input = input_nc
+        unet_output = output_nc
+
+        # Potential skip-less downsampling
+        for i in range(num_downs - num_skips):
+            pre_base += [DownBlock(input_nc, ngf * 2**(i), norm_layer)]
+            input_nc = ngf
+            ngf = ngf * 2**(i)
+            unet_input = ngf
+
+        # Potential skip-less upsampling
+        for i in range(num_ups - num_downs):
+            if i == 0: 
+                unet_output = ngf
+            if i == num_ups - num_downs - 1:
+                # Get the right number of final channels
+                post_base += [UpBlock(ngf, output_nc, norm_layer)]
+            else:
+                post_base += [UpBlock(ngf, ngf // 2, norm_layer)]
+            ngf = ngf // 2
+
+        self.down_sampling = nn.Sequential(*pre_base)
+        self.base_model = UnetGenerator(unet_input, unet_output, num_downs=num_skips)
+        self.up_sampling = nn.Sequential(*post_base)
+
+    def forward(self, x):
+        x = self.down_sampling(x)
+        x = self.base_model(x)
+        # x = self.conv_out(x)
+        x = self.up_sampling(x)
+        return x
+

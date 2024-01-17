@@ -3,7 +3,7 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
-import duplex_model.networks as networks
+import selector.duplex_model.networks as networks
 
 
 class BaseModel(ABC):

@@ -1,11 +1,11 @@
 import torch
 import torch.nn.functional as F
 import itertools
-from util.image_pool import ImagePool
 from duplex_model.base_model import BaseModel
 from duplex_model.mask_distribution import IndependentRelaxedBernoulli
 from duplex_model.networks import define_selector
 from dapi_networks.network_utils import init_network, run_inference
+from util.gaussian_smoothing import gaussian_filter_2d
 
 
 class PathWiseSelectorModel(BaseModel):
@@ -34,7 +34,10 @@ class PathWiseSelectorModel(BaseModel):
         parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
-        
+        parser.add_argument('--gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
+                                                        is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma')
+        parser.add_argument('--lambda_ising_regularization', type=float, default=0.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
+
 
         return parser
 
@@ -46,12 +49,14 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["reg", "class", "class_notemp", "class_no_selector", "class_pi", "acc", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
+        self.loss_names = ["ising_regularization", "reg", "class", "class_notemp", "class_no_selector", "class_pi", "acc", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save','x_tilde',  'z_to_save_notemp', 'x_tilde_notemp']
 
         self.use_pi_as_mask = opt.use_pi_as_mask
+        self.gaussian_smoothing_sigma = opt.gaussian_smoothing_sigma
+        self.lambda_ising_regularization = opt.lambda_ising_regularization
         # check args consistency
         # NA for Now
 
@@ -151,6 +156,9 @@ class PathWiseSelectorModel(BaseModel):
         
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
+        if self.gaussian_smoothing_sigma>0 :
+            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
+
         self.log_pi = F.logsigmoid(self.pi_logit)
         # self.log_pi_expanded = self.log_pi.unsqueeze(0).expand(self.sample_z, *self.log_pi.shape)
 
@@ -198,6 +206,13 @@ class PathWiseSelectorModel(BaseModel):
         # Regularization
         self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
+        # Ising regularization :
+        if self.lambda_ising_regularization > 0.0:
+            current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
+                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0)
+        else :
+            self.loss_ising_regularization = torch.zeros_like(self.loss_reg)
         # Quantile metrix
         self.loss_quantile_pi_25 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.25, dim=1)
         self.loss_quantile_pi_50 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.50, dim=1)
@@ -245,9 +260,12 @@ class PathWiseSelectorModel(BaseModel):
 
         # Total loss
         if self.use_pi_as_mask:
-            self.loss_total = self.loss_class_pi.mean() + self.lambda_regularization * self.loss_reg.mean()
+            self.loss_total = self.loss_class_pi.mean() 
         else :
-            self.loss_total = self.loss_class.mean() + self.lambda_regularization * self.loss_reg.mean()
+            self.loss_total = self.loss_class.mean() 
+        
+        self.loss_total = self.loss_total + self.lambda_regularization * self.loss_reg.mean() \
+                        + self.lambda_ising_regularization * self.loss_ising_regularization.mean()
         self.loss_total.backward()
 
 

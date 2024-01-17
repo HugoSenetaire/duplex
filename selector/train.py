@@ -23,6 +23,7 @@ from data import create_dataset
 from duplex_model import create_model
 from util.visualizerwandb import VisualizerWandb
 import tqdm
+import torch
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options

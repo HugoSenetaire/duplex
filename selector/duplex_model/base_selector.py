@@ -3,13 +3,13 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
-import selector.duplex_model.networks as networks
+import duplex_model.networks as networks
 
 
-class BaseModel(ABC):
+class BaseSelector(ABC):
     """This class is an abstract base class (ABC) for models.
     To create a subclass, you need to implement the following five functions:
-        -- <__init__>:                      initialize the class; first call BaseModel.__init__(self, opt).
+        -- <__init__>:                      initialize the class; first call BaseSelector.__init__(self, opt).
         -- <set_input>:                     unpack data from dataset and apply preprocessing.
         -- <forward>:                       produce intermediate results.
         -- <calculate_losses>:              calculate losses batched losses
@@ -18,13 +18,13 @@ class BaseModel(ABC):
     """
 
     def __init__(self, opt):
-        """Initialize the BaseModel class.
+        """Initialize the BaseSelector class.
 
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
 
         When creating your custom class, you need to implement your own initialization.
-        In this fucntion, you should first call <BaseModel.__init__(self, opt)>
+        In this fucntion, you should first call <BaseSelector.__init__(self, opt)>
         Then, you need to define four lists:
             -- self.loss_names (str list):          specify the training losses that you want to plot and save.
             -- self.model_names (str list):         specify the images that you want to display and save.
@@ -47,13 +47,13 @@ class BaseModel(ABC):
         self.aggregated = False
 
     @staticmethod
-    def modify_commandline_options(parser, is_train):
+    def modify_commandline_options(parser, is_train, opt=None):
         """Add new model-specific options, and rewrite default values for existing options.
 
         Parameters:
             parser          -- original option parser
             is_train (bool) -- whether training phase or test phase. You can use this flag to add training-specific or test-specific options.
-
+            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions. Used here for commandline option in attributes of model
         Returns:
             the modified parser.
         """

@@ -119,7 +119,7 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], input_shape=(32,32)):
+def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], input_shape=(32,32), downscale_asymmetric=1):
     """Create a generator
 
     Parameters:
@@ -131,6 +131,9 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
         init_type (str)    -- the name of our initialization method.
         init_gain (float)  -- scaling factor for normal, xavier and orthogonal.
         gpu_ids (int list) -- which GPUs the network runs on: e.g., 0,1,2
+        downscale_asymmetric (int) -- if using asymmetric unet, how much to downscale by
+                                    if 1, we will have superpizels of size2x2,
+                                    if 2, we will have superpixels of size 4x4, etc.
 
     Returns a generator
 
@@ -155,6 +158,9 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
     elif selector == 'unet_128':
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+    elif selector=='asymmetric_unet_128':
+        assert downscale_asymmetric > 0 and downscale_asymmetric < 7
+        net = AsymmetricUNetGenerator(input_nc, output_nc, 7, 7-downscale_asymmetric, ngf, norm_layer=norm_layer, use_dropout=use_dropout,)
     elif selector == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif selector == 'unet_32':
@@ -528,7 +534,7 @@ class PixelDiscriminator(nn.Module):
 
 
 class UpBlock(nn.Module):
-    """Up-sampling block"""
+    """Up-sampling block using learnable convolution"""
     def __init__(self, input_nc, output_nc, norm_layer=nn.BatchNorm2d):
         """Construct an up-sampling block
 
@@ -552,6 +558,15 @@ class UpBlock(nn.Module):
         x = self.uprelu(self.upconv(x))
         x = self.upnorm(self.conv(x))
         return x
+
+class UpSampleBlock(nn.Module):
+    """Up-sampling block without any learned convolution"""
+    def __init__(self, ) -> None:
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+
+    def forward(self, x):
+        return self.upsample(x)
 
 
 class DownBlock(nn.Module):
@@ -584,7 +599,7 @@ class DownBlock(nn.Module):
 class AsymmetricUNetGenerator(nn.Module):
     """Create a UNet-based generator with a different number of downsampling block and upsampling blocks"""
 
-    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, ):
         """Construct the asymmetric UNet generator
         
         Parameters:
@@ -606,14 +621,17 @@ class AsymmetricUNetGenerator(nn.Module):
         unet_input = input_nc
         unet_output = output_nc
 
-        # Potential skip-less downsampling
+        # Potential skip-less downsampling 
+        # We need to downsample more than we upsample
         for i in range(num_downs - num_skips):
             pre_base += [DownBlock(input_nc, ngf * 2**(i), norm_layer)]
             input_nc = ngf
             ngf = ngf * 2**(i)
-            unet_input = ngf
+        unet_input = ngf
 
-        # Potential skip-less upsampling
+
+        # Potential skip-less upsampling, potential super resolution
+        # We need to upsample more than we downsample
         for i in range(num_ups - num_downs):
             if i == 0: 
                 unet_output = ngf
@@ -624,6 +642,10 @@ class AsymmetricUNetGenerator(nn.Module):
                 post_base += [UpBlock(ngf, ngf // 2, norm_layer)]
             ngf = ngf // 2
 
+
+        for i in range(num_downs - num_skips):
+            post_base+= [UpSampleBlock()]
+       
         self.down_sampling = nn.Sequential(*pre_base)
         self.base_model = UnetGenerator(unet_input, unet_output, num_downs=num_skips)
         self.up_sampling = nn.Sequential(*post_base)
@@ -631,7 +653,5 @@ class AsymmetricUNetGenerator(nn.Module):
     def forward(self, x):
         x = self.down_sampling(x)
         x = self.base_model(x)
-        # x = self.conv_out(x)
         x = self.up_sampling(x)
         return x
-

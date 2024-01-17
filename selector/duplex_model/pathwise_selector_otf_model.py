@@ -1,11 +1,6 @@
 import torch
 import torch.nn.functional as F
-import itertools
-from util.image_pool import ImagePool
 from duplex_model.pathwise_selector_model import PathWiseSelectorModel
-from duplex_model.mask_distribution import IndependentRelaxedBernoulli
-from duplex_model.networks import define_selector
-from dapi_networks.network_utils import init_network, run_inference
 from starganv2.inference.model import LatentInferenceModel
 import numpy as np 
 

@@ -1,14 +1,14 @@
 import torch
 import torch.nn.functional as F
 import itertools
-from duplex_model.base_model import BaseModel
+from duplex_model.base_selector import BaseSelector
 from duplex_model.mask_distribution import IndependentRelaxedBernoulli
 from duplex_model.networks import define_selector
 from dapi_networks.network_utils import init_network, run_inference
 from util.gaussian_smoothing import gaussian_filter_2d
 
 
-class PathWiseSelectorModel(BaseModel):
+class PathWiseSelectorModel(BaseSelector):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
 
@@ -21,7 +21,7 @@ class PathWiseSelectorModel(BaseModel):
     """
 
     @staticmethod
-    def modify_commandline_options(parser, is_train=True):
+    def modify_commandline_options(parser, is_train=True, opt = None):
         """Add new dataset-specific options, and rewrite default values for existing options.
         Parameters:
             parser          -- original option parser
@@ -36,9 +36,8 @@ class PathWiseSelectorModel(BaseModel):
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
         parser.add_argument('--gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
                                                         is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma')
-        parser.add_argument('--lambda_ising_regularization', type=float, default=0.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
-
-
+        parser.add_argument('--lambda_ising_regularization', type=float, default=-1.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
+        
         return parser
 
     def __init__(self, opt):
@@ -47,7 +46,7 @@ class PathWiseSelectorModel(BaseModel):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        BaseModel.__init__(self, opt)
+        BaseSelector.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ["ising_regularization", "reg", "class_z", "class_notemp", "class_no_selector", "class_pi", "acc_z", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
@@ -68,8 +67,18 @@ class PathWiseSelectorModel(BaseModel):
 
         # define networks (both selectors and classifiers)
         print("Setting up selector")
-        self.netg_gamma = define_selector(opt.input_nc, opt.ngf, opt.net_selector, opt.norm, # In the case of the mask, one just needs the output mask
-                                        not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids, opt.f_theta_input_shape).to(self.device)
+        self.netg_gamma = define_selector(
+                                opt.input_nc,
+                                opt.ngf,
+                                opt.net_selector,
+                                opt.norm, # In the case of the mask one just needs the output mask
+                                not opt.no_dropout,
+                                opt.init_type,
+                                opt.init_gain,                            
+                                self.gpu_ids,
+                                opt.f_theta_input_shape,
+                                downscale_asymmetric=opt.downscale_asymmetric
+                                ).to(self.device)
         
         print("Setting up mask distribution")
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
@@ -149,6 +158,7 @@ class PathWiseSelectorModel(BaseModel):
 
 
     def forward(self, ):
+        """Run forward pass for training; called by function <optimize_parameters>."""
         self.pi_logit = self.netg_gamma(self.x)
         if self.gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
@@ -166,7 +176,7 @@ class PathWiseSelectorModel(BaseModel):
 
 
     def forward_val(self,):
-        """Run forward pass; called by both functions <eval> and <test>.
+        """Run forward pass to create all variables required for metrics and visualization; called by both functions <eval> and <test>.
         """
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
@@ -234,7 +244,7 @@ class PathWiseSelectorModel(BaseModel):
         if self.lambda_ising_regularization > 0.0:
             current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
             self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
-                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel
+                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel ?
         else :
             self.loss_ising_regularization = torch.zeros_like(self.loss_reg)
 

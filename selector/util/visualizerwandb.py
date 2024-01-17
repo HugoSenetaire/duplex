@@ -100,7 +100,7 @@ class VisualizerWandb():
         Parameters:
             visuals (OrderedDict) - - dictionary of images to display or save
             epoch (int) - - the current epoch
-            save_result (bool) - - if save the current results to an HTML file
+            save_result (bool) - - if save the current results to disk
             total_iter (int) - - the total iteration during training (not reset to 0)
 
         """

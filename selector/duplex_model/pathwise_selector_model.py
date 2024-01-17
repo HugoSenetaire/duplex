@@ -49,10 +49,10 @@ class PathWiseSelectorModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["ising_regularization", "reg", "class", "class_notemp", "class_no_selector", "class_pi", "acc", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
+        self.loss_names = ["ising_regularization", "reg", "class_z", "class_notemp", "class_no_selector", "class_pi", "acc_z", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save','x_tilde',  'z_to_save_notemp', 'x_tilde_notemp']
+        self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z',  'z_to_save_notemp', 'x_tilde_notemp']
 
         self.use_pi_as_mask = opt.use_pi_as_mask
         self.gaussian_smoothing_sigma = opt.gaussian_smoothing_sigma
@@ -146,14 +146,28 @@ class PathWiseSelectorModel(BaseModel):
         self.sample_z = self.mc_sample_z * self.imp_sample_z
     
 
-    def forward(self):
-        """Run forward pass; called by both functions <optimize_parameters> and <test>.
-            TODO: All the calculation are only necessary when printing the loss, 
-                  one could simplify a lot this function in most of the iteration and 
-                  improve speed.
-        """
 
-        
+
+    def forward(self, ):
+        self.pi_logit = self.netg_gamma(self.x)
+        if self.gaussian_smoothing_sigma>0 :
+            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
+
+        self.log_pi = F.logsigmoid(self.pi_logit)
+
+        # Sample from the mask distribution
+        if self.use_pi_as_mask :
+            self.z = self.log_pi.exp().unsqueeze(0)
+        else :
+            self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
+            self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+        self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
+        self.y_tilde = self.netf_theta(self.x_tilde)
+
+
+    def forward_val(self,):
+        """Run forward pass; called by both functions <eval> and <test>.
+        """
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
         if self.gaussian_smoothing_sigma>0 :
@@ -175,52 +189,82 @@ class PathWiseSelectorModel(BaseModel):
         
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi.exp().unsqueeze(0) + (1 - self.log_pi.exp().unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)
-        self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
+        self.x_tilde_z = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
         self.x_tilde_notemp = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
 
 
         self.z_to_save = (self.z.flatten(0,1) * 2) -1
         self.pi_to_save = (self.log_pi.exp() * 2) -1
         self.z_to_save_notemp = (self.z_notemp.flatten(0,1) * 2) -1
+
         
-        self.x_tilde = self.x_tilde.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
+        self.x_tilde_z = self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         self.x_tilde_notemp = self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         self.x_tilde_pi = self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
         
         # Calculate the classifier output on the mixed images and the original images
-        self.y_tilde = self.netf_theta(self.x_tilde)
+        self.y_tilde_z = self.netf_theta(self.x_tilde_z)
         self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
         self.y_no_selector = self.netf_theta(self.x)
         self.y_tilde_pi = self.netf_theta(self.x_tilde_pi)
 
-        self.y_tilde = self.y_tilde.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+        self.y_tilde_z = self.y_tilde_z.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_no_selector = self.y_no_selector.reshape(self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_pi = self.y_tilde_pi.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
 
-
-    
     def calculate_batched_loss(self):
-        """Calculate losses, gradients, and update network weights; called in every training iteration"""
+        """
+        Calculate losses, gradients, and update network weights; called in every training iteration
+        """
+
+        # Likelihood guidance 
+        self.loss_class = F.cross_entropy(
+            self.y_tilde.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
+            self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
+            reduction='none')
+        self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
+        
         # Regularization
         self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
+        
         # Ising regularization :
         if self.lambda_ising_regularization > 0.0:
             current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
             self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
-                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0)
+                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel
         else :
             self.loss_ising_regularization = torch.zeros_like(self.loss_reg)
+
+
+    
+    def calculate_batched_loss_val(self,):
+        """
+        Calculate losses and metrics using the variables created in forward val. 
+        Should create all measures named in loss_names
+        """
+        # Regularization
+        self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
+
+        
+        # Ising regularization :
+        if self.lambda_ising_regularization > 0.0:
+            current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
+                                    + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel
+        else :
+            self.loss_ising_regularization = torch.zeros_like(self.loss_reg)
+        
+
         # Quantile metrix
         self.loss_quantile_pi_25 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.25, dim=1)
         self.loss_quantile_pi_50 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.50, dim=1)
         self.loss_quantile_pi_75 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.75, dim=1)
 
-        
         # Accuracy metrics
-        self.loss_acc = (self.y_tilde.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
+        self.loss_acc_z = (self.y_tilde_z.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().reshape(self.x.shape[0])
         self.loss_acc_pi = (self.y_tilde_pi.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
@@ -234,11 +278,11 @@ class PathWiseSelectorModel(BaseModel):
         self.loss_class_pi = self.loss_class_pi.reshape(self.sample_z, self.x.shape[0]).mean(0)
 
         # Likelihood guidance 
-        self.loss_class = F.cross_entropy(
-            self.y_tilde.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
+        self.loss_class_z = F.cross_entropy(
+            self.y_tilde_z.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
-        self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
+        self.loss_class_z = self.loss_class_z.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
         
         
         # Likelihood guidance but without temperature relaxation
@@ -253,17 +297,13 @@ class PathWiseSelectorModel(BaseModel):
             self.y_no_selector,
             self.y,
             reduction='none').reshape(self.x.shape[0])
+           
 
 
     def backward_g_gamma(self):
-        """Calculate the loss selector NN g_gamma"""
-
+        """Backward through the loss for the selector g_gamma"""
         # Total loss
-        if self.use_pi_as_mask:
-            self.loss_total = self.loss_class_pi.mean() 
-        else :
-            self.loss_total = self.loss_class.mean() 
-        
+        self.loss_total = self.loss_class.mean() 
         self.loss_total = self.loss_total + self.lambda_regularization * self.loss_reg.mean() \
                         + self.lambda_ising_regularization * self.loss_ising_regularization.mean()
         self.loss_total.backward()
@@ -274,8 +314,8 @@ class PathWiseSelectorModel(BaseModel):
         Evaluate the model on the current batch, store and aggregate the losses.
         """
         with torch.no_grad():
-            self.forward()
-            self.calculate_batched_loss()
+            self.forward_val()
+            self.calculate_batched_loss_val()
             batched_losses = self.get_current_batched_losses()
             self.aggregate_losses(batched_losses,)
        

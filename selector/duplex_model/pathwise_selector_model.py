@@ -33,8 +33,11 @@ class PathWiseSelectorModel(BaseSelector):
         parser.add_argument('--model_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[model_suffix].pth will be loaded as the generator.')
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
-        parser.add_argument('--gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
+        parser.add_argument('--pi_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
                                                         is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma')
+        parser.add_argument('--z_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the sampled mask \
+        is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma. In the case of use_pi_as_mask, it is still different \
+        from pi_gaussian_smoothing_sigma  as the smoothing happens after the upsampling.')
         
 
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
@@ -66,7 +69,8 @@ class PathWiseSelectorModel(BaseSelector):
         self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z',  'z_to_save_notemp', 'x_tilde_notemp']
 
         self.use_pi_as_mask = opt.use_pi_as_mask
-        self.gaussian_smoothing_sigma = opt.gaussian_smoothing_sigma
+        self.pi_gaussian_smoothing_sigma = opt.pi_gaussian_smoothing_sigma
+        self.z_gaussian_smoothing_sigma = opt.z_gaussian_smoothing_sigma
         self.lambda_ising_regularization = opt.lambda_ising_regularization
 
 
@@ -193,8 +197,8 @@ class PathWiseSelectorModel(BaseSelector):
     def forward(self, ):
         """Run forward pass for training; called by function <optimize_parameters>."""
         self.pi_logit = self.netg_gamma(self.x)
-        if self.gaussian_smoothing_sigma>0 :
-            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
+        if self.pi_gaussian_smoothing_sigma>0 :
+            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
 
 
         if self.upscale and not self.upscale_after_sampling :
@@ -216,6 +220,8 @@ class PathWiseSelectorModel(BaseSelector):
                 self.z = self.upscaler(self.z.flatten(0,1))
             self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
 
+        if self.z_gaussian_smoothing_sigma>0 :
+            self.z = gaussian_filter_2d(self.z, sigma=self.z_gaussian_smoothing_sigma)
         
         self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
@@ -227,7 +233,7 @@ class PathWiseSelectorModel(BaseSelector):
         """
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
-        if self.gaussian_smoothing_sigma>0 :
+        if self.pi_gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
         if self.upscale and not self.upscale_after_sampling :
             self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
@@ -236,7 +242,6 @@ class PathWiseSelectorModel(BaseSelector):
 
         self.log_pi = F.logsigmoid(self.pi_logit)
         
-        # self.log_pi_expanded = self.log_pi.unsqueeze(0).expand(self.sample_z, *self.log_pi.shape)
 
         # Sample from the mask distribution
         self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
@@ -254,6 +259,10 @@ class PathWiseSelectorModel(BaseSelector):
             self.z = self.upscaler(self.z.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
             self.z_notemp = self.upscaler(self.z_notemp.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
            
+        if self.z_gaussian_smoothing_sigma>0 :
+            self.z = gaussian_filter_2d(self.z, sigma=self.z_gaussian_smoothing_sigma)
+            self.z_notemp = gaussian_filter_2d(self.z_notemp, sigma=self.z_gaussian_smoothing_sigma)
+            self.log_pi = gaussian_filter_2d(self.log_pi, sigma=self.pi_gaussian_smoothing_sigma)
         
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi.exp().unsqueeze(0) + (1 - self.log_pi.exp().unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)

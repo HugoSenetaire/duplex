@@ -119,7 +119,18 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[], input_shape=(32,32), downscale_asymmetric=1):
+def define_selector(   
+        input_nc,
+        ngf,
+        selector,
+        norm='batch',
+        use_dropout=False,
+        init_type='normal',
+        init_gain=0.02,
+        gpu_ids=[],
+        input_shape=(32,32),
+        downscale_asymmetric=1,
+        ):
     """Create a generator
 
     Parameters:
@@ -152,6 +163,10 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
     norm_layer = get_norm_layer(norm_type=norm)
     output_nc = 1 # Mask output so single channel
 
+    if "asymmetric" in selector:
+        assert downscale_asymmetric > 0 and downscale_asymmetric < 7, "downscale_asymmetric should be between 1 and 6 if using asymmetric unet"
+    else :
+        assert downscale_asymmetric == 0, "downscale_asymmetric should be 0 if not using asymmetric unet"
     if selector == 'resnet_9blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     elif selector == 'resnet_6blocks':
@@ -159,8 +174,7 @@ def define_selector(input_nc, ngf, selector, norm='batch', use_dropout=False, in
     elif selector == 'unet_128':
         net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif selector=='asymmetric_unet_128':
-        assert downscale_asymmetric > 0 and downscale_asymmetric < 7
-        net = AsymmetricUNetGenerator(input_nc, output_nc, 7, 7-downscale_asymmetric, ngf, norm_layer=norm_layer, use_dropout=use_dropout,)
+        net = AsymmetricUNetGenerator(input_nc, output_nc, 7, 7-downscale_asymmetric, ngf, norm_layer=norm_layer, use_dropout=use_dropout, )
     elif selector == 'unet_256':
         net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
     elif selector == 'unet_32':
@@ -599,7 +613,7 @@ class DownBlock(nn.Module):
 class AsymmetricUNetGenerator(nn.Module):
     """Create a UNet-based generator with a different number of downsampling block and upsampling blocks"""
 
-    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, ):
+    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, upscale_after_sampling=False ):
         """Construct the asymmetric UNet generator
         
         Parameters:
@@ -643,9 +657,7 @@ class AsymmetricUNetGenerator(nn.Module):
             ngf = ngf // 2
 
 
-        for i in range(num_downs - num_skips):
-            post_base+= [UpSampleBlock()]
-       
+
         self.down_sampling = nn.Sequential(*pre_base)
         self.base_model = UnetGenerator(unet_input, unet_output, num_downs=num_skips)
         self.up_sampling = nn.Sequential(*post_base)

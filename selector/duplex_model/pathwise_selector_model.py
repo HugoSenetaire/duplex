@@ -56,6 +56,13 @@ class PathWiseSelectorModel(BaseSelector):
         self.use_pi_as_mask = opt.use_pi_as_mask
         self.gaussian_smoothing_sigma = opt.gaussian_smoothing_sigma
         self.lambda_ising_regularization = opt.lambda_ising_regularization
+
+
+        # If generated mask requires upscaling
+        self.upscale = ("asymmetric" in opt.net_selector and opt.downscale_asymmetric > 0)
+        if self.upscale :
+            self.upscaler = torch.nn.Upsample(scale_factor=2**opt.downscale_asymmetric, mode='nearest')
+        self.upscale_after_sampling = opt.upscale_after_sampling
         # check args consistency
         # NA for Now
 
@@ -77,7 +84,7 @@ class PathWiseSelectorModel(BaseSelector):
                                 opt.init_gain,                            
                                 self.gpu_ids,
                                 opt.f_theta_input_shape,
-                                downscale_asymmetric=opt.downscale_asymmetric
+                                downscale_asymmetric=opt.downscale_asymmetric,
                                 ).to(self.device)
         
         print("Setting up mask distribution")
@@ -163,14 +170,28 @@ class PathWiseSelectorModel(BaseSelector):
         if self.gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
 
+
+        if self.upscale and not self.upscale_after_sampling :
+            self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
+        else :
+            self.pi_logit = self.pi_logit.reshape(self.x.shape[0], 1, *[s//2**self.opt.downscale_asymmetric for s in self.x.shape[2:]])
+
         self.log_pi = F.logsigmoid(self.pi_logit)
 
         # Sample from the mask distribution
         if self.use_pi_as_mask :
-            self.z = self.log_pi.exp().unsqueeze(0)
+            self.z = self.log_pi.exp()
+            if self.upscale and self.upscale_after_sampling :
+                self.z = self.upscaler(self.z)
+            self.z = self.z.unsqueeze(0)
         else :
             self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
-            self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+            if self.upscale and self.upscale_after_sampling :
+                self.z = self.upscaler(self.z.flatten(0,1))
+            self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+
+        
+        self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
         self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
         self.y_tilde = self.netf_theta(self.x_tilde)
 
@@ -182,20 +203,31 @@ class PathWiseSelectorModel(BaseSelector):
         self.pi_logit = self.netg_gamma(self.x)
         if self.gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
+        if self.upscale and not self.upscale_after_sampling :
+            self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
+        else :
+            self.pi_logit = self.pi_logit.reshape(self.x.shape[0], 1, *[s//2**self.opt.downscale_asymmetric for s in self.x.shape[2:]])
 
         self.log_pi = F.logsigmoid(self.pi_logit)
+        
         # self.log_pi_expanded = self.log_pi.unsqueeze(0).expand(self.sample_z, *self.log_pi.shape)
 
         # Sample from the mask distribution
         self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
-        self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+        self.z = self.z.reshape(self.sample_z, self.pi_logit.shape[0], 1, *self.pi_logit.shape[2:]) 
 
 
         # Sample
-        self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
-        self.z_notemp = self.z_notemp.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+        self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) 
+        self.z_notemp = self.z_notemp.reshape(self.sample_z, self.pi_logit.shape[0], 1, *self.pi_logit.shape[2:])
         
 
+        # Upscale if necessary :
+        if self.upscale and self.upscale_after_sampling :
+            self.log_pi = self.upscaler(self.log_pi)
+            self.z = self.upscaler(self.z.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            self.z_notemp = self.upscaler(self.z_notemp.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+           
         
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi.exp().unsqueeze(0) + (1 - self.log_pi.exp().unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)

@@ -34,7 +34,7 @@ class BaseOptions():
         parser.add_argument('--ndf', type=int, default=64, help='# of discrim filters in the first conv layer')
         parser.add_argument('--net_selector', type=str, default='resnet_6blocks', help='specify generator architecture [resnet_9blocks | resnet_6blocks | unet_256 | unet_128| asymmetric_unet_128 | unet_32, fc]')
         parser.add_argument('--downscale_asymmetric', type=int, default=1, help='if specified and use asymmetric unet, the produced mask will be downsampled by this 2**downscale_asymmetric factor')
-        parser.add_argument('--upscale_after_sampling', type=int, default=1, help='if specified and use asymmetric unet, the produced mask will be upsampled by this 2**downscale_asymmetric factor but after samplin\
+        parser.add_argument('--upscale_after_sampling', action='store_true', help='if specified and use asymmetric unet, the produced mask will be upsampled by this 2**downscale_asymmetric factor but after samplin\
                             otherwise pi will be upsampled by this 2**downscale_asymmetric factor, doesnt change a thing for pi_as_mask') # TODO : Implement this for later ? Not sure if really required
         parser.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization [instance | batch | none]')
         parser.add_argument('--init_type', type=str, default='normal', help='network initialization [normal | xavier | kaiming | orthogonal]')

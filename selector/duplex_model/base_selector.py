@@ -132,6 +132,12 @@ class BaseSelector(ABC):
         lr = self.optimizers[0].param_groups[0]['lr']
         print('learning rate = %.7f' % lr)
 
+    def get_aux_info(self,):
+        """Return a dictionnary with auxiliary information to be logged
+        Here learning rate is returned"""
+        dic = {}
+        return dic
+
     def get_current_visuals(self):
         """Return visualization images. train.py will display these images with visdom, and save the images to a HTML"""
         visual_ret = OrderedDict()

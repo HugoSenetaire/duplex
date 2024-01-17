@@ -97,6 +97,7 @@ if __name__ == '__main__':
                     visualizer.print_current_losses(epoch, i, losses, 0, 0, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=None)
                 if total_iters % opt.log_freq == 0: # Log losses to wandb
                     visualizer.log_current_losses(losses = losses, total_iter=total_iters, prefix = 'train/')
+                    visualizer.log_current_losses(model.get_aux_info(), total_iter=total_iters, prefix = 'info/')
                 
                 # TODO : Empty cache here to avoid having large saved element ? Need to add some function in the model class
                 

@@ -6,6 +6,7 @@ from duplex_model.mask_distribution import IndependentRelaxedBernoulli
 from duplex_model.networks import define_selector
 from dapi_networks.network_utils import init_network, run_inference
 from util.gaussian_smoothing import gaussian_filter_2d
+from duplex_model.scheduler_lambda import get_scheduler_lambda
 
 
 class PathWiseSelectorModel(BaseSelector):
@@ -30,13 +31,24 @@ class PathWiseSelectorModel(BaseSelector):
             the modified parser.
         """
         parser.add_argument('--model_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[model_suffix].pth will be loaded as the generator.')
-        parser.add_argument('--lambda_regularization', type=float, default=0.1, help='L1 regularization strenght to limit the selection of the mask')
-        parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
         parser.add_argument('--gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
                                                         is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma')
+        
+
+        parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
+        parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
+        parser.add_argument('--lambda_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_regularization parameter. [linear | constant | cosine]')
+        parser.add_argument('--lambda_regularization_scheduler_targetepoch', type=int, default=100, help='Target epoch for the lambda_regularization scheduler to reach the lambda_regularization value')
+
+
+        parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
+
         parser.add_argument('--lambda_ising_regularization', type=float, default=-1.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
+        parser.add_argument('--lambda_ising_regularization_init', type=float, default=0., help='Initial value for the lambda_ising_regularization scheduler')
+        parser.add_argument('--lambda_ising_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_ising_regularization parameter. [linear | constant | cosine]')
+        parser.add_argument('--lambda_ising_regularization_scheduler_targetepoch', type=int, default=100, help='Target epoch for the lambda_ising_regularization scheduler to reach the lambda_ising_regularization value')
         
         return parser
 
@@ -108,6 +120,20 @@ class PathWiseSelectorModel(BaseSelector):
             assert opt.lambda_regularization > 0.0, "lambda_regularization must be > 0.0"
             self.lambda_regularization = opt.lambda_regularization
 
+            self.scheduler_lambda_regularization = get_scheduler_lambda(
+                                                        scheduler_lambda_type=opt.lambda_regularization_scheduler,
+                                                        target_lambda = opt.lambda_regularization,
+                                                        init_lambda = opt.lambda_regularization_init,
+                                                        target_epoch = opt.lambda_regularization_scheduler_targetepoch,
+                                                        )
+        
+            self.scheduler_ising_regularization = get_scheduler_lambda(
+                                                        scheduler_lambda_type = opt.lambda_ising_regularization_scheduler,  
+                                                        target_lambda = opt.lambda_ising_regularization,
+                                                        init_lambda = opt.lambda_ising_regularization_init,
+                                                        target_epoch=opt.lambda_ising_regularization_scheduler_targetepoch,
+                                                        )
+     
             assert self.p_z.rsample_available, "rsample must be available for the mask distribution in order to use pathwise gradient estimator"
             
             
@@ -346,8 +372,8 @@ class PathWiseSelectorModel(BaseSelector):
         """Backward through the loss for the selector g_gamma"""
         # Total loss
         self.loss_total = self.loss_class.mean() 
-        self.loss_total = self.loss_total + self.lambda_regularization * self.loss_reg.mean() \
-                        + self.lambda_ising_regularization * self.loss_ising_regularization.mean()
+        self.loss_total = self.loss_total + self.scheduler_lambda_regularization() * self.loss_reg.mean() \
+                        + self.scheduler_ising_regularization() * self.loss_ising_regularization.mean()
         self.loss_total.backward()
 
 
@@ -361,6 +387,26 @@ class PathWiseSelectorModel(BaseSelector):
             batched_losses = self.get_current_batched_losses()
             self.aggregate_losses(batched_losses,)
        
+    def update_learning_rate(self):
+        """
+        Modify the original learning rate function to allow for the lambda schedulers to be updated.
+        """
+        super().update_learning_rate()
+        self.scheduler_lambda_regularization.step()
+        print("Current lambda regularization : ", self.scheduler_lambda_regularization())
+        self.scheduler_ising_regularization.step()
+        print("Current lambda ising regularization : ", self.scheduler_ising_regularization())
+        
+    def get_aux_info(self):
+        """
+        Return a dictionary containing all the auxiliary information to be logged.
+        Here returns the current regularization strenghts and the learning rate.
+        """
+        dic = super().get_aux_info()
+        dic["lambda_regularization"] = self.scheduler_lambda_regularization()
+        dic["lambda_ising_regularization"] = self.scheduler_ising_regularization()
+        dic["lr"] = self.optimizer_selector.param_groups[0]['lr']
+        return dic
 
 
     def optimize_parameters(self):

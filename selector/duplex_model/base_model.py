@@ -70,11 +70,22 @@ class BaseModel(ABC):
 
     @abstractmethod
     def forward(self):
-        """Run forward pass; called by both functions <optimize_parameters> and <test>."""
+        """Run forward pass to create all variable required for training; called by both functions <optimize_parameters>."""
         pass
+
+
+    @abstractmethod
+    def forward_val(self):
+        """Run forward pass to create all required variable for measurements; called by <evaluate>."""
+        pass
+
 
     @abstractmethod
     def calculate_batched_loss(self):
+        """Calculate losses, gradients, and update network weights; called in every training iteration"""
+        pass
+
+    def calculate_batched_loss_val(self):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
 
@@ -108,23 +119,7 @@ class BaseModel(ABC):
                 net = getattr(self, 'net' + name)
                 net.eval()
 
-    def test(self):
-        """Forward function used in test time.
 
-        This function wraps <forward> function in no_grad() so we don't save intermediate steps for backprop
-        It also calls <compute_visuals> to produce additional visualization results
-        """
-        with torch.no_grad():
-            self.forward()
-            self.compute_visuals()
-
-    def compute_visuals(self):
-        """Calculate additional output images for visdom and HTML visualization"""
-        pass
-
-    def get_image_paths(self):
-        """ Return image paths that are used to load current data"""
-        return self.image_paths
 
     def update_learning_rate(self):
         """Update learning rates for all the networks; called at the end of every epoch"""
@@ -154,7 +149,8 @@ class BaseModel(ABC):
         return errors_ret
     
     def get_current_batched_losses(self):
-        """Return traning batched losses / errors. train.py will average them and print out these errors on console, and save them to a file"""
+        """Return val batched losses / errors. train.py will average them and print out these errors on console, and save them to a file
+        Only difference with get_current_losses is that it doesn't take the mean of the loss, this is handled by aggregate_losses"""
         errors_ret = OrderedDict()
         for name in self.loss_names:
             if isinstance(name, str):
@@ -163,7 +159,6 @@ class BaseModel(ABC):
 
     def aggregate_losses(self, losses):
         """Perform a runnning mean on the aggregated loss using the new found loss.
-
 
         Parameters:
             losses (dict): dictionary of losses from single batch
@@ -193,17 +188,6 @@ class BaseModel(ABC):
             self.loss_aggregate[k] = 0
         self.seen_samples = 0
 
-    def get_current_aux_infos(self):
-        pass
-        # aux_infos = OrderedDict()
-        # for name in self.aux_names:
-        #     if isinstance(name, str):
-        #         try:
-        #             aux_infos[name] = np.array((getattr(self, name)).cpu().detach().numpy())  # float(...) works for both scalar tensor and float number
-        #         except AttributeError:
-        #             pass
-
-        # return aux_infos
 
     def save_networks(self, epoch):
         """Save all the networks to the disk.

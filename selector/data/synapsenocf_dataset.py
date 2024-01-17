@@ -43,16 +43,28 @@ class SynapseNoCFDataset(BaseDataset,):
 
 
         # Dataset
+
+        if self.augment and self.split == "train":
+            self.transform = A.Compose(
+                [
+                    A.HorizontalFlip(p=0.5),
+                    A.VerticalFlip(p=0.5),
+                    A.RandomRotate90(p=0.5),
+                    apytorch.transforms.ToTensorV2(),
+
+                ],
+
+            )
+        else:
+            self.transform = A.Compose(
+            [
+                apytorch.transforms.ToTensorV2()
+            ],
+        )
+
         self.dataset = ImageFolder(
             root=root,
-            # transform=None,
-            transform=transforms.Compose(
-                [
-                    transforms.Grayscale(),
-                    transforms.ToTensor(),
-                    transforms.Normalize(mean=0.5, std=0.5),
-                ]
-            ),
+            transform=None,
         )
 
 
@@ -72,6 +84,8 @@ class SynapseNoCFDataset(BaseDataset,):
     def __getitem__(self, index):
         self.dataset.__getitem__(index)
         x, y = self.dataset.__getitem__(index)
+        x = np.array(x, dtype=np.float32)[..., 0] # It's a grayscale image, so we only need one channel
+        x = self.transform(image=x)["image"]/255 *2 -1 # Normalize to [-1, 1]
         y = torch.tensor(y, dtype=torch.long)
         # target = np.random.choice([i for i in range(1, 6) if i != y])
         target = torch.full_like(y, -1)

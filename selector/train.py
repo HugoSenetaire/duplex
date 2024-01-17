@@ -55,55 +55,57 @@ if __name__ == '__main__':
         visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
 
 
-        if dataset_val is not None:
-            # Validation every epoch
-            dic_loss_aggregate = {}
-            pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
-            for i, data in pbar:
-                model.set_input(data)
+        if dataset_val is not None: # Evaluation on validation dataset
+            with torch.no_grad():
+                # Validation every epoch
+                dic_loss_aggregate = {}
+                pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
+                for i, data in pbar:
+                    model.set_input(data)
+                    model.evaluate()
+                aggregated_losses = model.get_aggregated_losses()
+                visualizer.print_current_losses(epoch, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset_val.dataloader), aux_infos=None)
+                visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
+                visualizer.display_current_results(model.get_current_visuals(), epoch, True, total_iters)
+                model.reset_aggregated_losses()
+
+                # Visualize witness samples
+                witness_sample, witness_label= dataset_val.dataset.get_witness_sample()
+                model.set_input(witness_sample)
                 model.evaluate()
-            aggregated_losses = model.get_aggregated_losses()
-            visualizer.print_current_losses(epoch, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset_val.dataloader), aux_infos=None)
-            visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
-
-            model.reset_aggregated_losses()
-
-            # Visualize witness samples
-            witness_sample, witness_label= dataset_val.dataset.get_witness_sample()
-            model.set_input(witness_sample)
-            model.evaluate()
-
-            visualizer.witness_sample(total_iters, model.get_current_visuals(), witness_label,)
+                visualizer.witness_sample(total_iters, model.get_current_visuals(), witness_label,)
 
 
-
-        for i, data in enumerate(dataset):  # inner loop within one epoch
+        pbar_train= tqdm.tqdm(enumerate(dataset), desc='Training',)
+        for i, data in pbar_train:  # inner loop within one epoch
             iter_start_time = time.time()  # timer for computation per iteration
             if total_iters % opt.print_freq == 0:
                 t_data = iter_start_time - iter_data_time
 
+            # Train
             model.set_input(data)         # unpack data from dataset and apply preprocessing
             model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
-            if total_iters % opt.display_freq == 0:   # display images on visdom and save images to a HTML file
-                save_result = total_iters % opt.update_html_freq == 0
-                model.compute_visuals()
-                visualizer.display_current_results(model.get_current_visuals(), epoch, save_result, total_iters)
-
-            if total_iters % opt.print_freq == 0:    # print training losses and save logging information to the disk
+            # Evaluate on the train dataset
+            if total_iters % opt.print_freq == 0 or total_iters%opt.log_freq == 0 : # If log is required
+                with torch.no_grad():
+                    model.forward_val()
+                    model.calculate_batched_loss_val()
                 losses = model.get_current_losses()
-                aux_infos = model.get_current_aux_infos()
-                t_comp = (time.time() - iter_start_time) / opt.batch_size
-                visualizer.print_current_losses(epoch, i, losses, t_comp, t_data, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=aux_infos)
-
-            if total_iters % opt.log_freq == 0:      # log visualizations and losses to the disk
-                losses = model.get_current_losses()
-                visualizer.log_current_losses(losses = losses, total_iter=total_iters, prefix = 'train/')
-
+                if total_iters % opt.print_freq == 0: # Print losses to console
+                    visualizer.print_current_losses(epoch, i, losses, 0, 0, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=None)
+                if total_iters % opt.log_freq == 0: # Log losses to wandb
+                    visualizer.log_current_losses(losses = losses, total_iter=total_iters, prefix = 'train/')
+                
+                # TODO : Empty cache here to avoid having large saved element ? Need to add some function in the model class
+                
+                
             if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
                 print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
                 save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
                 model.save_networks(save_suffix)
+                print('saved')
+
 
             iter_data_time = time.time()
             total_iters += 1
@@ -112,6 +114,7 @@ if __name__ == '__main__':
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')
             model.save_networks(epoch)
+            print('saved')
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs + opt.n_epochs_decay, time.time() - epoch_start_time))
         model.update_learning_rate()                     # update learning rates at the end of every epoch.

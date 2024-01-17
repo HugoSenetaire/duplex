@@ -63,10 +63,22 @@ class VisualizerWandb():
             sample (OrderedDict) - - dictionary of images to display or save
             label (List) - - list of labels for each image
         """
-        fig, axs = plt.subplots(nrows=len(label), ncols=len(sample), figsize=(len(sample)*4, len(label)*4))
-        for j, (k, v) in enumerate(sample.items()):
-            assert len(v) == len(label)
-            for i in range(len(label)):
+        fig, axs = plt.subplots(nrows=len(label), ncols=len(sample)+2, figsize=(len(sample)*4 +2, len(label)*4))
+        for i in range(len(label)):
+            axs[i, -2].imshow(util.tensor2im(sample['x'][i,None]), cmap='gray')
+            axs[i, -2].imshow(util.tensor2im(sample['pi_to_save'][i,None][:,:,-1]), cmap='Reds', alpha=0.2, vmin=0, vmax=1)
+            axs[i, -2].axis('off')
+            
+            axs[i, -1].imshow(util.tensor2im(sample['x_cf'][i,None]), cmap='gray')
+            axs[i, -1].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, vmin=0, vmax=1)
+            axs[i, -1].axis('off')
+
+            if i==0 :
+                axs[i, -2].set_title("overlay x", fontsize=20)
+                axs[i, -1].set_title("overlay x_cf", fontsize=20)
+
+            for j, (k, v) in enumerate(sample.items()):
+                assert len(v) == len(label)
                 axs[i, j].imshow(util.tensor2im(v[i,None]))
                 axs[i, j].axis('off')
                 if i == 0 :
@@ -88,7 +100,7 @@ class VisualizerWandb():
         Parameters:
             visuals (OrderedDict) - - dictionary of images to display or save
             epoch (int) - - the current epoch
-            save_result (bool) - - if save the current results to an HTML file
+            save_result (bool) - - if save the current results to disk
             total_iter (int) - - the total iteration during training (not reset to 0)
 
         """

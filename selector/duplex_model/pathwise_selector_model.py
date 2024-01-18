@@ -179,12 +179,12 @@ class PathWiseSelectorModel(BaseSelector):
         IMP sample: Importance sampling to reduce the bias of the likelihood estimate (see Burda et al. 2015 Importance Weighted Autoencoders)
 
         """
-        if self.netg_gamma.training:
+        if self.netg_gamma.training and self.isTrain:
             self.mc_sample_z = self.opt.mc_sample_z
             self.imp_sample_z = self.opt.imp_sample_z
         else:
-            self.mc_sample_z = self.opt.mc_sample_z_notemp
-            self.imp_sample_z = self.opt.imp_sample_z_notemp
+            self.mc_sample_z = self.opt.mc_sample_z_test
+            self.imp_sample_z = self.opt.imp_sample_z_test
         
         self.sample_z = self.mc_sample_z * self.imp_sample_z
     

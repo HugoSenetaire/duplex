@@ -234,7 +234,7 @@ class PathWiseSelectorModel(BaseSelector):
         # Calculate the mask distribution parameter
         self.pi_logit = self.netg_gamma(self.x)
         if self.pi_gaussian_smoothing_sigma>0 :
-            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.gaussian_smoothing_sigma)
+            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
         if self.upscale and not self.upscale_after_sampling :
             self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
         else :
@@ -262,7 +262,7 @@ class PathWiseSelectorModel(BaseSelector):
         if self.z_gaussian_smoothing_sigma>0 :
             self.z = gaussian_filter_2d(self.z, sigma=self.z_gaussian_smoothing_sigma)
             self.z_notemp = gaussian_filter_2d(self.z_notemp, sigma=self.z_gaussian_smoothing_sigma)
-            self.log_pi = gaussian_filter_2d(self.log_pi, sigma=self.pi_gaussian_smoothing_sigma)
+            self.log_pi = gaussian_filter_2d(self.log_pi, sigma=self.z_gaussian_smoothing_sigma)
         
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi.exp().unsqueeze(0) + (1 - self.log_pi.exp().unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)

@@ -83,10 +83,7 @@ class PathWiseSelectorModel(BaseSelector):
         # NA for Now
 
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
-        if self.isTrain:
-            self.model_names = ['g_gamma', 'f_theta',]
-        else:  # during test time, only load Gs
-            self.model_names = ['g_gamma', ]
+        self.model_names = ['g_gamma', 'f_theta',]
 
         # define networks (both selectors and classifiers)
         print("Setting up selector")
@@ -107,16 +104,16 @@ class PathWiseSelectorModel(BaseSelector):
         self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
         self.p_z_notemp = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
 
-        if self.isTrain:  # define classifiers
-            print("Setting up classifier")
-            self.netf_theta = init_network(
-                checkpoint_path=opt.f_theta_checkpoint,
-                input_shape=opt.f_theta_input_shape,
-                net_module=opt.f_theta_net,
-                input_nc=opt.f_theta_input_nc,
-                output_classes=opt.f_theta_output_classes,
-                downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)]
-                ).to(self.device)
+        # if self.isTrain:  # define classifiers
+        print("Setting up classifier")
+        self.netf_theta = init_network(
+            checkpoint_path=opt.f_theta_checkpoint,
+            input_shape=opt.f_theta_input_shape,
+            net_module=opt.f_theta_net,
+            input_nc=opt.f_theta_input_nc,
+            output_classes=opt.f_theta_output_classes,
+            downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)]
+            ).to(self.device)
             
 
         if self.isTrain:
@@ -137,12 +134,12 @@ class PathWiseSelectorModel(BaseSelector):
                                                         init_lambda = opt.lambda_ising_regularization_init,
                                                         target_epoch=opt.lambda_ising_regularization_scheduler_targetepoch,
                                                         )
-     
+        
             assert self.p_z.rsample_available, "rsample must be available for the mask distribution in order to use pathwise gradient estimator"
             
             
 
-            # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
+        # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_selector = torch.optim.Adam(self.netg_gamma.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_selector)
 

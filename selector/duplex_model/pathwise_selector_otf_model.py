@@ -52,28 +52,26 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         PathWiseSelectorModel.__init__(self, opt)
+        self.model_names.append('latent_inference_model')
+
         self.counterfactual_mode = opt.counterfactual_mode
+        img_size = opt.f_theta_input_shape[0]
+        style_dim = opt.style_dim_latent_model
+        latent_dim = opt.latent_dim_latent_model
+        num_domains = opt.f_theta_output_classes
+        checkpoint_iter = opt.load_iter_latent_mdodel
 
-        if self.isTrain:
-            self.model_names.append('latent_inference_model')
-
-            img_size = opt.f_theta_input_shape[0]
-            style_dim = opt.style_dim_latent_model
-            latent_dim = opt.latent_dim_latent_model
-            num_domains = opt.f_theta_output_classes
-            checkpoint_iter = opt.load_iter_latent_mdodel
-
-            self.netlatent_inference_model = LatentInferenceModel(
-                checkpoint_dir=opt.latent_model_checkpoint_dir,
-                img_size=img_size,
-                style_dim=style_dim,
-                latent_dim=latent_dim,
-                num_domains=num_domains,
-                w_hpf=0.0,
-            )
-            self.netlatent_inference_model.load_checkpoint(checkpoint_iter)
-            self.netlatent_inference_model.to(self.device)
-            self.batch_size_counterfactual_generation = opt.batch_size_counterfactual_generation
+        self.netlatent_inference_model = LatentInferenceModel(
+            checkpoint_dir=opt.latent_model_checkpoint_dir,
+            img_size=img_size,
+            style_dim=style_dim,
+            latent_dim=latent_dim,
+            num_domains=num_domains,
+            w_hpf=0.0,
+        )
+        self.netlatent_inference_model.load_checkpoint(checkpoint_iter)
+        self.netlatent_inference_model.to(self.device)
+        self.batch_size_counterfactual_generation = opt.batch_size_counterfactual_generation
 
         
 

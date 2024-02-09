@@ -63,17 +63,38 @@ class VisualizerWandb():
             sample (OrderedDict) - - dictionary of images to display or save
             label (List) - - list of labels for each image
         """
-        fig, axs = plt.subplots(nrows=len(label), ncols=len(sample)+2, figsize=(len(sample)*4 +2, len(label)*4))
+
+        test_x = sample['x'][0]
+        aux_pi = (sample['pi_to_save'][0]+1)*0.5
+
+        nrows = len(label)
+        ncols = len(sample)+4
+        fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*10, nrows*10))
         for i in range(len(label)):
+            aux_pi = (sample['pi_to_save'][i]+1)*0.5
+            
+            aux_x = sample['x'][i] * aux_pi + (1-aux_pi) * (-1)
+            aux_x_cf = sample['x_cf'][i] * (1-aux_pi) + (aux_pi) * (-1)
+
+
+            axs[i, -4].imshow(util.tensor2im(aux_x.unsqueeze(0)), cmap='gray')
+            axs[i, -4].axis('off')
+            axs[i, -3].imshow(util.tensor2im(aux_x_cf.unsqueeze(0)), cmap='gray')
+            axs[i, -3].axis('off')
+
             axs[i, -2].imshow(util.tensor2im(sample['x'][i,None]), cmap='gray')
-            axs[i, -2].imshow(util.tensor2im(sample['pi_to_save'][i,None][:,:,-1]), cmap='Reds', alpha=0.2, vmin=0, vmax=1)
+            axs[i, -2].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, )
             axs[i, -2].axis('off')
             
             axs[i, -1].imshow(util.tensor2im(sample['x_cf'][i,None]), cmap='gray')
-            axs[i, -1].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, vmin=0, vmax=1)
+            axs[i, -1].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, )
             axs[i, -1].axis('off')
 
+
+
             if i==0 :
+                axs[i, -4].set_title("x", fontsize=20)
+                axs[i, -3].set_title("x_cf", fontsize=20)
                 axs[i, -2].set_title("overlay x", fontsize=20)
                 axs[i, -1].set_title("overlay x_cf", fontsize=20)
 
@@ -90,7 +111,9 @@ class VisualizerWandb():
                     axs[i, j].set_title(label[i], fontsize=20)
 
         self.logger.log({"witness": [wandb.Image(fig)]}, step=total_iter)
+        plt.savefig('witness.png')
         plt.close(fig)
+
         
 
     def display_current_results(self, visuals, epoch, save_result, total_iter):

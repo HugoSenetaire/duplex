@@ -171,7 +171,7 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
             self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x.shape)
         else :
             self.y_cf_expanded = torch.randint_like(self.y_expanded, 0, self.opt.f_theta_output_classes)
-            while torch.any(self.y_cf_expanded == self.y_cf):
+            while torch.any(self.y_cf_expanded == self.y_expanded):
                 self.aux_y_cf_expanded = torch.randint_like(self.y_cf_expanded, 0, self.opt.f_theta_output_classes)
                 self.y_cf_expanded = torch.where(self.y_expanded == self.y_cf_expanded, self.aux_y_cf_expanded, self.y_cf_expanded)
             self.y_cf_expanded = torch.randint_like(self.y_expanded, 0, self.opt.f_theta_output_classes)

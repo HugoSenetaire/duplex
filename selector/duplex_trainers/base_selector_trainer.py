@@ -3,18 +3,18 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
-import duplex_model.networks as networks
+import duplex_models.networks as networks
 
 
-class BaseSelector(ABC):
-    """This class is an abstract base class (ABC) for models.
+class BaseSelectorTrainer(ABC):
+    """This class is an abstract base class (ABC) for trainers.
     To create a subclass, you need to implement the following five functions:
         -- <__init__>:                      initialize the class; first call BaseSelector.__init__(self, opt).
         -- <set_input>:                     unpack data from dataset and apply preprocessing.
         -- <forward>:                       produce intermediate results.
         -- <calculate_losses>:              calculate losses batched losses
         -- <optimize_parameters>:           calculate gradients, and update network weights.
-        -- <modify_commandline_options>:    (optionally) add model-specific options and set default options.
+        -- <modify_commandline_options>:    (optionally) add trainer-specific options and set default options.
     """
 
     def __init__(self, opt):
@@ -48,7 +48,7 @@ class BaseSelector(ABC):
 
     @staticmethod
     def modify_commandline_options(parser, is_train, opt=None):
-        """Add new model-specific options, and rewrite default values for existing options.
+        """Add new trainer-specific options, and rewrite default values for existing options.
 
         Parameters:
             parser          -- original option parser
@@ -240,8 +240,8 @@ class BaseSelector(ABC):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(self.save_dir, load_filename)
                 net = getattr(self, 'net' + name)
-                if isinstance(net, torch.nn.DataParallel):
-                    net = net.module
+                # if isinstance(net, torch.nn.DataParallel):
+                    # net = net.module
                 print('loading the model from %s' % load_path)
                 # if you are using PyTorch newer than 0.4 (e.g., built from
                 # GitHub source), you can remove str() on self.device

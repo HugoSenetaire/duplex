@@ -1,6 +1,6 @@
 import pytest
 import torch
-from selector.duplex_model.networks import AsymmetricUNetGenerator, DownBlock, UpBlock, UnetGenerator
+from selector.duplex_models.networks import AsymmetricUNetGenerator, DownBlock, UpBlock, UnetGenerator
 from torchinfo import summary
 
 @pytest.mark.parametrize("input_nc, output_nc", [(1, 4), (4, 8)])

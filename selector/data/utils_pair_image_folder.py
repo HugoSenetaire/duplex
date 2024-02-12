@@ -85,7 +85,7 @@ def make_dataset(
                 current_dic = {str(class_to_idx[source_class]): path}
                 if is_valid_file(path):
                     for target_class, target_dir in target_directories.items():
-                        target_path = os.path.join(target_dir, fname.strip("_train")[0]+".png")
+                        target_path = os.path.join(target_dir, fname)
                         if os.path.isfile(target_path) and is_valid_file(target_path):
                             item = path, target_path, class_index, class_to_idx[target_class]
                             instances.append(item)

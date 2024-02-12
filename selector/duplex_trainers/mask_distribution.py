@@ -84,13 +84,11 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
     def sample(self, nb_sample, g_gamma_out = None):
         if g_gamma_out is not None:
             self.set_parameter(g_gamma_out)
-        
         return self.current_distribution.sample((nb_sample,))
     
     def rsample(self, nb_sample, g_gamma_out = None):
         if g_gamma_out is not None:
             self.set_parameter(g_gamma_out)
-        
         return self.current_distribution.rsample((nb_sample,))
 
 
@@ -98,5 +96,4 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
     def log_prob(self, z, g_gamma_out=None):
         if g_gamma_out is not None:
             self.set_parameter(g_gamma_out)
-        
         return self.current_distribution.log_prob(z).sum(dim=-1)

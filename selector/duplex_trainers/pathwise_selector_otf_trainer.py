@@ -1,19 +1,19 @@
 import torch
 import torch.nn.functional as F
-from duplex_model.pathwise_selector_model import PathWiseSelectorModel
 from starganv2.inference.model import LatentInferenceModel
+from .pathwise_selector_trainer import PathWiseSelectorTrainer
 import numpy as np 
 
 
-class PathWiseSelectorOTFModel(PathWiseSelectorModel):
+class PathWiseSelectorOTFTrainer(PathWiseSelectorTrainer):
     """
-    This class implements the PathWiseSelectorModel for on-the-fly counterfactual generation.
-    This models stores the latent inference model and the counterfactual generation mode.
+    This class implements the PathWiseSelectorTrainer for on-the-fly counterfactual generation.
+    This trainer stores the latent inference model and the counterfactual generation mode.
     """
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
-        PathWiseSelectorModel.modify_commandline_options(parser, is_train)
+        PathWiseSelectorTrainer.modify_commandline_options(parser, is_train)
         """Add new dataset-specific options, and rewrite default values for existing options.
         Here add the options for the latent inference model and the counterfactual generation.
         Parameters:
@@ -46,7 +46,7 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        PathWiseSelectorModel.__init__(self, opt)
+        PathWiseSelectorTrainer.__init__(self, opt)
         self.model_names.append('latent_inference_model')
 
         self.counterfactual_mode = opt.counterfactual_mode

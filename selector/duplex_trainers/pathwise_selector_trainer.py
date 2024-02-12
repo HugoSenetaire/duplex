@@ -1,24 +1,19 @@
 import torch
 import torch.nn.functional as F
 import itertools
-from duplex_model.base_selector import BaseSelector
-from duplex_model.mask_distribution import IndependentRelaxedBernoulli
-from duplex_model.networks import define_selector
+from .base_selector_trainer import BaseSelectorTrainer
+from duplex_trainers.mask_distribution import IndependentRelaxedBernoulli
+from duplex_models.networks import define_selector
 from dapi_networks.network_utils import init_network, run_inference
 from util.gaussian_smoothing import gaussian_filter_2d
-from duplex_model.scheduler_lambda import get_scheduler_lambda
+from duplex_trainers.scheduler_lambda import get_scheduler_lambda
 
 
-class PathWiseSelectorModel(BaseSelector):
+class PathWiseSelectorTrainer(BaseSelectorTrainer):
     """
-    This class implements the CycleGAN model, for learning image-to-image translation without paired data.
-
-    The model training requires '--dataset_mode unaligned' dataset.
-    By default, it uses a '--netG resnet_9blocks' ResNet generator,
-    a '--netD basic' discriminator (PatchGAN introduced by pix2pix),
-    and a least-square GANs objective ('--gan_mode lsgan').
-
-    CycleGAN paper: https://arxiv.org/pdf/1703.10593.pdf
+    This class implements the pathwise selector trainer for 
+    a DupLEX models. It requires a selector network and a classifier network and 
+    a dataset that provides counterfactuals. 
     """
 
     @staticmethod
@@ -61,7 +56,7 @@ class PathWiseSelectorModel(BaseSelector):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        BaseSelector.__init__(self, opt)
+        BaseSelectorTrainer.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
         self.loss_names = ["ising_regularization", "reg", "class_z", "class_notemp", "class_no_selector", "class_pi", "acc_z", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
@@ -97,7 +92,8 @@ class PathWiseSelectorModel(BaseSelector):
                                 opt.init_gain,                            
                                 self.gpu_ids,
                                 opt.f_theta_input_shape,
-                                downscale_asymmetric=opt.downscale_asymmetric,
+                                downscale_asymmetric = opt.downscale_asymmetric,
+                                use_counterfactual = opt.use_counterfactual_in_selector,
                                 ).to(self.device)
         
         print("Setting up mask distribution")
@@ -193,7 +189,7 @@ class PathWiseSelectorModel(BaseSelector):
 
     def forward(self, ):
         """Run forward pass for training; called by function <optimize_parameters>."""
-        self.pi_logit = self.netg_gamma(self.x)
+        self.pi_logit = self.netg_gamma(self.x, self.x_cf)
         if self.pi_gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
 
@@ -229,7 +225,7 @@ class PathWiseSelectorModel(BaseSelector):
         """Run forward pass to create all variables required for metrics and visualization; called by both functions <eval> and <test>.
         """
         # Calculate the mask distribution parameter
-        self.pi_logit = self.netg_gamma(self.x)
+        self.pi_logit = self.netg_gamma(self.x, self.x_cf)
         if self.pi_gaussian_smoothing_sigma>0 :
             self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
         if self.upscale and not self.upscale_after_sampling :

@@ -1,16 +1,16 @@
-"""General-purpose training script for DupLEX models.
+"""General-purpose training script for DupLEX trainers.
 
-This script works for various models (with option '--model': e.g., pathwise) and
+This script works for various trainers (with option '--trainer': e.g., pathwise) and
 different datasets (with option '--dataset_mode': e.g., mnistduck).
-You need to specify the dataset ('--dataroot'), experiment name ('--name'), and model ('--model').
+You need to specify the dataset ('--dataroot'), experiment name ('--name'), and trainer ('--trainer').
 
-It first creates model, dataset, and visualizer given the option.
-It then does standard network training. During the training, it also visualize/save the images, print/save the loss plot, and save models.
+It first creates trainer, dataset, and visualizer given the option.
+It then does standard network training. During the training, it also visualize/save the images, print/save the loss plot, and save trainers.
 The script supports continue/resume training. Use '--continue_train' to resume your previous training.
 
 Example:
-    Train a pathwise model:
-        python train.py --dataroot /nrs/funke/senetaireh/data --name duckmnist --model pathwise_selector
+    Train a pathwise trainer:
+        python train.py --dataroot /nrs/funke/senetaireh/data --name duckmnist --trainer pathwise_selector
    
 
 See options/base_options.py and options/train_options.py for more training options.
@@ -20,7 +20,7 @@ See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-a
 import time
 from options.test_options import TestOptions
 from data import create_dataset
-from duplex_model import create_model
+from duplex_trainers import create_trainer
 from util.visualizerwandb import VisualizerWandb
 from util.util import tensor2im, save_image
 import tqdm
@@ -35,13 +35,13 @@ if __name__ == '__main__':
 
     print('The number of testing images = %d' % dataset_size)
 
-    print("Creating model")
-    model = create_model(opt)      # create a model given opt.model and other options
-    print("Model created")
-    print("Setting up model")
-    model.setup(opt)               # regular setup: load and print networks; create schedulers
-    model.load_networks(opt.load_epoch)
-    print("Model setup")
+    print("Creating trainer")
+    trainer = create_trainer(opt)      # create a trainer given opt.trainer and other options
+    print("trainer created")
+    print("Setting up trainer")
+    trainer.setup(opt)               # regular setup: load and print networks; create schedulers
+    trainer.load_networks(opt.load_epoch)
+    print("trainer setup")
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
@@ -86,46 +86,51 @@ if __name__ == '__main__':
     with torch.no_grad():
         # Validation every epoch
         dic_loss_aggregate = {}
-        pbar = tqdm.tqdm(enumerate(dataset), desc='Validation', total=int(len(dataset)/opt.batch_size))
         
         dic = {'idx': [], 'name': [], 'y': [], 'y_cf': [], 'pred_y_cf': [], }
         dic.update({f'real_y_cf_{j}': [] for j in range(opt.f_theta_output_classes)})
         count = 0
-        for i, data in pbar:
-            model.set_input(data)
-            model.evaluate()
+        witness_sample, witness_label= dataset.dataset.get_witness_sample()
+        trainer.set_input(witness_sample)
+        trainer.evaluate()
+        visualizer.witness_sample(total_iters, trainer.get_current_visuals(), witness_label,)
+        # pbar = tqdm.tqdm(enumerate(dataset), desc='Validation', total=int(len(dataset)/opt.batch_size))
+
+        # for i, data in pbar:
+        #     trainer.set_input(data)
+        #     trainer.evaluate()
             
-            for k in range(len(model.x)):
-                target = model.y[k].item()
-                x = model.x[k].unsqueeze(0).cpu()
-                x_cf = model.x_cf[k].unsqueeze(0).cpu()
-                pi = model.pi_to_save[k].unsqueeze(0).cpu()
-                y = model.y[k].unsqueeze(0).cpu()
-                y_cf = model.y_cf[k].unsqueeze(0).cpu()
-                real_y_cf = model.real_y_cf[k].unsqueeze(0).cpu()
-                dic['idx'].append(count)
-                name_image = f'{count:05d}.png'
-                x = tensor2im(x, )
-                x_cf = tensor2im(x_cf,)
-                pi = tensor2im(pi, )
-                save_image(x, os.path.join(target_original_dir[target], name_image))
-                save_image(x_cf, os.path.join(target_counterfactual_dir[target], name_image))
-                save_image(pi, os.path.join(target_mask_dir[target], name_image))
-                dic['name'].append(name_image)
-                dic['y'].append(target)
-                dic['y_cf'].append(y_cf.item())
-                dic['pred_y_cf'].append(model.real_y_cf[k].argmax(-1).item())
-                for j in range(opt.f_theta_output_classes):
-                    dic[f'real_y_cf_{j}'].append(real_y_cf[0,j].item())
-                count+=1
+        #     for k in range(len(trainer.x)):
+        #         target = trainer.y[k].item()
+        #         x = trainer.x[k].unsqueeze(0).cpu()
+        #         x_cf = trainer.x_cf[k].unsqueeze(0).cpu()
+        #         pi = trainer.pi_to_save[k].unsqueeze(0).cpu()
+        #         y = trainer.y[k].unsqueeze(0).cpu()
+        #         y_cf = trainer.y_cf[k].unsqueeze(0).cpu()
+        #         real_y_cf = trainer.real_y_cf[k].unsqueeze(0).cpu()
+        #         dic['idx'].append(count)
+        #         name_image = f'{count:05d}.png'
+        #         x = tensor2im(x, )
+        #         x_cf = tensor2im(x_cf,)
+        #         pi = tensor2im(pi, )
+        #         save_image(x, os.path.join(target_original_dir[target], name_image))
+        #         save_image(x_cf, os.path.join(target_counterfactual_dir[target], name_image))
+        #         save_image(pi, os.path.join(target_mask_dir[target], name_image))
+        #         dic['name'].append(name_image)
+        #         dic['y'].append(target)
+        #         dic['y_cf'].append(y_cf.item())
+        #         dic['pred_y_cf'].append(trainer.real_y_cf[k].argmax(-1).item())
+        #         for j in range(opt.f_theta_output_classes):
+        #             dic[f'real_y_cf_{j}'].append(real_y_cf[0,j].item())
+        #         count+=1
 
 
-        df = pd.DataFrame(dic)
-        df.to_csv(os.path.join(results_dir, 'results.csv'))
+        # df = pd.DataFrame(dic)
+        # df.to_csv(os.path.join(results_dir, 'results.csv'))
 
-        aggregated_losses = model.get_aggregated_losses()
-        visualizer.print_current_losses(-1, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset.dataloader), aux_infos=None)
-        visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
+        # aggregated_losses = trainer.get_aggregated_losses()
+        # visualizer.print_current_losses(-1, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset.dataloader), aux_infos=None)
+        # visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
 
       
 

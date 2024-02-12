@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
-from duplex_model.pathwise_selector_model import PathWiseSelectorModel
+from duplex_trainers.pathwise_selector_trainer import PathWiseSelectorTrainer
 
 class PathWiseSelectorPairDicModel(
-    PathWiseSelectorModel,
+    PathWiseSelectorTrainer,
 ):
     """
     This class implements the pathwise selector model for the paired dictionary dataset. To use with SynapseGanCFDataset.
@@ -19,7 +19,7 @@ class PathWiseSelectorPairDicModel(
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        PathWiseSelectorModel.__init__(self, opt)
+        PathWiseSelectorTrainer.__init__(self, opt)
 
 
     def set_input(self, input):

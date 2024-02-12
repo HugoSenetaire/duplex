@@ -130,6 +130,7 @@ def define_selector(
         gpu_ids=[],
         input_shape=(32,32),
         downscale_asymmetric=1,
+        use_counterfactual=False,
         ):
     """Create a generator
 
@@ -145,10 +146,11 @@ def define_selector(
         downscale_asymmetric (int) -- if using asymmetric unet, how much to downscale by
                                     if 1, we will have superpizels of size2x2,
                                     if 2, we will have superpixels of size 4x4, etc.
+        use_counterfactual (bool) -- if we use counterfactual as input of the selector or not.
 
     Returns a generator
 
-    Our current implementation provides two types of generators:
+    Our current implementation provides three types of selectors:
         U-Net: [unet_128] (for 128x128 input images) and [unet_256] (for 256x256 input images)
         The original U-Net paper: https://arxiv.org/abs/1505.04597
 
@@ -156,7 +158,9 @@ def define_selector(
         Resnet-based generator consists of several Resnet blocks between a few downsampling/upsampling operations.
         We adapt Torch code from Justin Johnson's neural style transfer project (https://github.com/jcjohnson/fast-neural-style).
 
-
+        Asymmetric U-Net: [asymmetric_unet_128] (for 128x128 input images) and [asymmetric_unet_256] (for 256x256 input images)
+        The asymmetric U-Net has a similar architecture as the U-Net, but the number of channels is such that the output
+        has a different size than the input (ie we get superpixels of size 2x2, 4x4, etc.). 
     The generator has been initialized by <init_net>. It uses RELU for non-linearity.
     """
     net = None
@@ -168,19 +172,19 @@ def define_selector(
     else :
         assert downscale_asymmetric == 0, "downscale_asymmetric should be 0 if not using asymmetric unet"
     if selector == 'resnet_9blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9, use_counterfactual=use_counterfactual)
     elif selector == 'resnet_6blocks':
-        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
+        net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6, use_counterfactual=use_counterfactual)
     elif selector == 'unet_128':
-        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 7, ngf, norm_layer=norm_layer, use_dropout=use_dropout, use_counterfactual=use_counterfactual)
     elif selector=='asymmetric_unet_128':
-        net = AsymmetricUNetGenerator(input_nc, output_nc, 7, 7-downscale_asymmetric, ngf, norm_layer=norm_layer, use_dropout=use_dropout, )
+        net = AsymmetricUNetGenerator(input_nc, output_nc, 7, 7-downscale_asymmetric, ngf, norm_layer=norm_layer, use_dropout=use_dropout, use_counterfactual=use_counterfactual)
     elif selector == 'unet_256':
-        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 8, ngf, norm_layer=norm_layer, use_dropout=use_dropout, use_counterfactual=use_counterfactual)
     elif selector == 'unet_32':
-        net = UnetGenerator(input_nc, output_nc, 5, ngf, norm_layer=norm_layer, use_dropout=use_dropout)
+        net = UnetGenerator(input_nc, output_nc, 5, ngf, norm_layer=norm_layer, use_dropout=use_dropout, use_counterfactual=use_counterfactual)
     elif selector == 'fc':
-        net = FullyConectedGenerator(input_shape)
+        net = FullyConectedGenerator(input_shape, use_counterfactual=use_counterfactual)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % selector)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -200,7 +204,17 @@ class ResnetGenerator(nn.Module):
     We adapt Torch code and idea from Justin Johnson's neural style transfer project(https://github.com/jcjohnson/fast-neural-style)
     """
 
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+    def __init__(
+                self,
+                input_nc,
+                output_nc,
+                ngf=64,
+                norm_layer=nn.BatchNorm2d,
+                use_dropout=False,
+                n_blocks=6,
+                padding_type='reflect',
+                use_counterfactual=False,
+                ):
         """Construct a Resnet-based generator
 
         Parameters:
@@ -211,7 +225,10 @@ class ResnetGenerator(nn.Module):
             use_dropout (bool)  -- if use dropout layers
             n_blocks (int)      -- the number of ResNet blocks
             padding_type (str)  -- the name of padding layer in conv layers: reflect | replicate | zero
+            use_counterfactual (bool) -- if we use counterfactual as input
         """
+        self.use_counterfactual = use_counterfactual
+        input_nc = 2*input_nc if use_counterfactual else input_nc
         assert(n_blocks >= 0)
         super(ResnetGenerator, self).__init__()
         if type(norm_layer) == functools.partial:
@@ -250,8 +267,10 @@ class ResnetGenerator(nn.Module):
 
         self.model = nn.Sequential(*model)
 
-    def forward(self, input):
+    def forward(self, input, x_cf = None):
         """Standard forward"""
+        if self.use_counterfactual:
+            return self.model(torch.cat([input, x_cf], dim=1))
         return self.model(input)
 
 def define_AUX(checkpoint_path, input_size=128, aux_net="vgg2d", output_classes=6,
@@ -346,17 +365,24 @@ class ResnetBlock(nn.Module):
 
 class FullyConectedGenerator(nn.Module):
     """Fully connected generator"""
-    def __init__(self, input_size,):
+    def __init__(self, input_size, use_counterfactual=False):
         super(FullyConectedGenerator, self).__init__()
+        self.use_counterfactual = use_counterfactual
         self.input_size = input_size
-        self.fc1 = nn.Linear(np.prod(input_size), 100)
+        if self.use_counterfactual:
+            self.fc1 = nn.Linear(2*np.prod(input_size), 100)
+        else :
+            self.fc1 = nn.Linear(np.prod(input_size), 100)
         self.fc2 = nn.Linear(100, 100)
         self.fc3 = nn.Linear(100, np.prod(input_size))
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
 
-    def forward(self, x):   
-        x = x.view(-1, np.prod(self.input_size))
+    def forward(self, x, x_cf = None):
+        if self.use_counterfactual:
+            x = torch.cat([x.view(-1, np.prod(self.input_size)), x_cf.view(-1, np.prod(self.input_size))], dim=1)
+        else :
+            x = x.view(-1, np.prod(self.input_size))
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         x = self.tanh(self.fc3(x))
@@ -368,7 +394,7 @@ class FullyConectedGenerator(nn.Module):
 class UnetGenerator(nn.Module):
     """Create a Unet-based generator"""
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False,use_counterfactual=False):
         """Construct a Unet generator
         Parameters:
             input_nc (int)  -- the number of channels in input images
@@ -382,6 +408,8 @@ class UnetGenerator(nn.Module):
         It is a recursive process.
         """
         super(UnetGenerator, self).__init__()
+        self.use_counterfactual = use_counterfactual
+        input_nc = 2*input_nc if use_counterfactual else input_nc
         # construct unet structure
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)  # add the innermost layer
         for i in range(num_downs - 5):          # add intermediate layers with ngf * 8 filters
@@ -392,8 +420,10 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
 
-    def forward(self, input):
+    def forward(self, input, x_cf = None):
         """Standard forward"""
+        if self.use_counterfactual:
+            return self.model(torch.cat([input, x_cf], dim=1))
         return self.model(input)
 
 
@@ -467,85 +497,6 @@ class UnetSkipConnectionBlock(nn.Module):
             return torch.cat([x, self.model(x)], 1)
 
 
-class NLayerDiscriminator(nn.Module):
-    """Defines a PatchGAN discriminator"""
-
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
-        """Construct a PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            n_layers (int)  -- the number of conv layers in the discriminator
-            norm_layer      -- normalization layer
-        """
-        super(NLayerDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        kw = 4
-        padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
-        nf_mult = 1
-        nf_mult_prev = 1
-        for n in range(1, n_layers):  # gradually increase the number of filters
-            nf_mult_prev = nf_mult
-            nf_mult = min(2 ** n, 8)
-            sequence += [
-                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
-                norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, True)
-            ]
-
-        nf_mult_prev = nf_mult
-        nf_mult = min(2 ** n_layers, 8)
-        sequence += [
-            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
-            norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2, True)
-        ]
-
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
-        self.model = nn.Sequential(*sequence)
-
-    def forward(self, input):
-        """Standard forward."""
-        return self.model(input)
-
-
-class PixelDiscriminator(nn.Module):
-    """Defines a 1x1 PatchGAN discriminator (pixelGAN)"""
-
-    def __init__(self, input_nc, ndf=64, norm_layer=nn.BatchNorm2d):
-        """Construct a 1x1 PatchGAN discriminator
-
-        Parameters:
-            input_nc (int)  -- the number of channels in input images
-            ndf (int)       -- the number of filters in the last conv layer
-            norm_layer      -- normalization layer
-        """
-        super(PixelDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-
-        self.net = [
-            nn.Conv2d(input_nc, ndf, kernel_size=1, stride=1, padding=0),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf, ndf * 2, kernel_size=1, stride=1, padding=0, bias=use_bias),
-            norm_layer(ndf * 2),
-            nn.LeakyReLU(0.2, True),
-            nn.Conv2d(ndf * 2, 1, kernel_size=1, stride=1, padding=0, bias=use_bias)]
-
-        self.net = nn.Sequential(*self.net)
-
-    def forward(self, input):
-        """Standard forward."""
-        return self.net(input)
-
 
 class UpBlock(nn.Module):
     """Up-sampling block using learnable convolution"""
@@ -613,7 +564,7 @@ class DownBlock(nn.Module):
 class AsymmetricUNetGenerator(nn.Module):
     """Create a UNet-based generator with a different number of downsampling block and upsampling blocks"""
 
-    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, upscale_after_sampling=False ):
+    def __init__(self, input_nc, output_nc, num_downs, num_ups, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, upscale_after_sampling=False, use_counterfactual=False):
         """Construct the asymmetric UNet generator
         
         Parameters:
@@ -629,6 +580,10 @@ class AsymmetricUNetGenerator(nn.Module):
         super(AsymmetricUNetGenerator, self).__init__()
         # assert num_downs >= num_ups
 
+
+        self.use_counterfactual = use_counterfactual
+        if self.use_counterfactual:
+            input_nc = 2*input_nc
         num_skips = num_ups
         pre_base = []
         post_base = []
@@ -662,7 +617,9 @@ class AsymmetricUNetGenerator(nn.Module):
         self.base_model = UnetGenerator(unet_input, unet_output, num_downs=num_skips)
         self.up_sampling = nn.Sequential(*post_base)
 
-    def forward(self, x):
+    def forward(self, x, x_cf = None):
+        if self.use_counterfactual:
+            x = torch.cat([x, x_cf], dim=1)
         x = self.down_sampling(x)
         x = self.base_model(x)
         x = self.up_sampling(x)

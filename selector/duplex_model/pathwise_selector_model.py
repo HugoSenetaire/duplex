@@ -42,8 +42,8 @@ class PathWiseSelectorModel(BaseSelector):
 
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
-        parser.add_argument('--lambda_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_regularization parameter. [linear | constant | cosine]')
-        parser.add_argument('--lambda_regularization_scheduler_targetepoch', type=int, default=100, help='Target epoch for the lambda_regularization scheduler to reach the lambda_regularization value')
+        parser.add_argument('--lambda_regularization_scheduler', type=str, default='linear', help='Scheduler for the lambda_regularization parameter. [linear | constant | cosine]')
+        parser.add_argument('--lambda_regularization_scheduler_targetepoch', type=int, default=10, help='Target epoch for the lambda_regularization scheduler to reach the lambda_regularization value')
 
 
         parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
@@ -51,7 +51,7 @@ class PathWiseSelectorModel(BaseSelector):
         parser.add_argument('--lambda_ising_regularization', type=float, default=-1.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
         parser.add_argument('--lambda_ising_regularization_init', type=float, default=0., help='Initial value for the lambda_ising_regularization scheduler')
         parser.add_argument('--lambda_ising_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_ising_regularization parameter. [linear | constant | cosine]')
-        parser.add_argument('--lambda_ising_regularization_scheduler_targetepoch', type=int, default=100, help='Target epoch for the lambda_ising_regularization scheduler to reach the lambda_ising_regularization value')
+        parser.add_argument('--lambda_ising_regularization_scheduler_targetepoch', type=int, default=10, help='Target epoch for the lambda_ising_regularization scheduler to reach the lambda_ising_regularization value')
         
         return parser
 

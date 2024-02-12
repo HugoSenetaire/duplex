@@ -7,20 +7,15 @@ import numpy as np
 
 class PathWiseSelectorOTFModel(PathWiseSelectorModel):
     """
-    This class implements the CycleGAN model, for learning image-to-image translation without paired data.
-
-    The model training requires '--dataset_mode unaligned' dataset.
-    By default, it uses a '--netG resnet_9blocks' ResNet generator,
-    a '--netD basic' discriminator (PatchGAN introduced by pix2pix),
-    and a least-square GANs objective ('--gan_mode lsgan').
-
-    CycleGAN paper: https://arxiv.org/pdf/1703.10593.pdf
+    This class implements the PathWiseSelectorModel for on-the-fly counterfactual generation.
+    This models stores the latent inference model and the counterfactual generation mode.
     """
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
         PathWiseSelectorModel.modify_commandline_options(parser, is_train)
         """Add new dataset-specific options, and rewrite default values for existing options.
+        Here add the options for the latent inference model and the counterfactual generation.
         Parameters:
             parser          -- original option parser
             is_train (bool) -- whether training phase or test phase. You can use this flag to add training-specific or test-specific options.

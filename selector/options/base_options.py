@@ -26,7 +26,7 @@ class BaseOptions():
         parser.add_argument('--checkpoints_dir', type=str, default='/nrs/funke/senetaire/checkpoints/', help='models are saved here')
         parser.add_argument('--isTrain', action='store_true', help='train or test')
         # model parameters
-        parser.add_argument('--model', type=str, default='pathwise_selector', help='chooses which model to use. [pathwise_selector| pathwise_selector_otf | test]')
+        parser.add_argument('--model', type=str, default='pathwise_selector', help='chooses which model to use. [pathwise_selector| pathwise_selector_otf | pathwise_selector_pair_dic | test]')
 
         # selector parameters
         parser.add_argument('--input_nc', type=int, default=1, help='# of input image channels: 3 for RGB and 1 for grayscale')

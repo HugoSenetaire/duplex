@@ -19,11 +19,26 @@ logger = logging.getLogger(__name__)
 class CounterfactualNotFound(Exception):
     pass
 
+class ImageFolderAugmentedDataset(ImageFolder,):
+    """
+    Similar to Image Folder, but returns the path of the original image.
+    """
+    def __init__(self, root, transform=None, target_transform=None):
+        super().__init__(root, transform, target_transform)
+
+    def __getitem__(self, index):
+        path, target = self.samples[index]
+        sample = self.loader(path)
+        if self.transform is not None:
+            sample = self.transform(image=sample)["image"]
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return sample, target, path
+
 
 class SynapseNoCFDataset(BaseDataset,):
     """
-    A dataset for which a dummy counterfactual is returned along the true image.
-    A target for the counterfactual is generated and returned.
+    A dataset for which a dummy counterfactual and a dummy target is returned along the true image.
     It assumes the images can be loaded with the ImageFolder dataset.
     """
     def __init__(
@@ -62,7 +77,7 @@ class SynapseNoCFDataset(BaseDataset,):
             ],
         )
 
-        self.dataset = ImageFolder(
+        self.dataset = ImageFolderAugmentedDataset(
             root=root,
             transform=None,
         )
@@ -83,7 +98,7 @@ class SynapseNoCFDataset(BaseDataset,):
 
     def __getitem__(self, index):
         self.dataset.__getitem__(index)
-        x, y = self.dataset.__getitem__(index)
+        x, y, path = self.dataset.__getitem__(index)
         x = np.array(x, dtype=np.float32)[..., 0] # It's a grayscale image, so we only need one channel
         x = self.transform(image=x)["image"]/255 *2 -1 # Normalize to [-1, 1]
         y = torch.tensor(y, dtype=torch.long)

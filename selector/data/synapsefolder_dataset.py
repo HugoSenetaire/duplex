@@ -1,4 +1,4 @@
-"""A dataset for synapse data loader from the prototype dataset.
+"""DEPRECATED: A dataset for synapse data loader from the prototype dataset.
 
 The data is expected to be organized as `{root}/{image_type}/{class_name}/{sample_number}.png` where: 
 - `root_dir`
@@ -64,14 +64,13 @@ def make_dataset(
         counterfactuals[: min(max_dataset_size, len(images))],
     )
 
-
-def default_loader(path):
-    return np.array(Image.open(path), dtype=np.float32)[
-        ..., 0
-    ]  # It's a grayscale image, so we only need one channel
-
+from .utils_pair_image_folder import default_loader
 
 class SynapseFolderDataset(BaseDataset):
+    """
+    DEPRECATED : Only a single counterfactual was generated for each image, 
+    so this dataset is not useful for the current experiments.
+    """
     def __init__(self, opt, split):
         super().__init__(opt)
         self.augment = (not opt.no_augment)

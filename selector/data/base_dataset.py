@@ -29,6 +29,7 @@ class BaseDataset(data.Dataset, ABC):
         """
         self.opt = opt
         self.root = opt.dataroot
+        self.augment = (not opt.no_augment)
         self.split = split
         self.witness_samples = None
         self.witness_labels = None

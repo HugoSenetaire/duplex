@@ -19,7 +19,7 @@ See our template model class 'template_model.py' for more details.
 """
 
 import importlib
-from duplex_model.base_selector import BaseSelector
+from .base_selector import BaseSelector
 
 
 def find_model_using_name(model_name):

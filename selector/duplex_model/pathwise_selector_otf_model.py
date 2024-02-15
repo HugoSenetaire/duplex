@@ -148,6 +148,8 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         """
         self.define_nb_sample()
 
+        self.x_path = input['x_path']
+        self.x_cf_path = input['x_cf_path']
 
         self.x = input['x'].to(self.device)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)

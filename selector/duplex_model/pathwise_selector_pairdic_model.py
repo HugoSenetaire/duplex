@@ -35,13 +35,14 @@ class PathWiseSelectorPairDicModel(
         """
         self.define_nb_sample()
 
+        self.x_path = input['x_path']
+        self.x_cf_path = input['x_cf_path']
 
         self.x = input['x'].to(self.device)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
         self.y = input['y'].to(self.device)
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
-
-
+        
         self.x_cf_expanded = input['x_cf'].to(self.device).unsqueeze(0).expand(self.sample_z, *input['x_cf'].shape)
      
         self.y_cf_expanded = torch.randint_like(self.y_expanded, 0, self.opt.f_theta_output_classes)

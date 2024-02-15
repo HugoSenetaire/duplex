@@ -154,6 +154,9 @@ class PathWiseSelectorModel(BaseSelector):
 
         self.define_nb_sample()
 
+        self.x_path = input['x_path']
+        self.x_cf_path = input['x_cf_path']
+
         self.x = input['x'].to(self.device)
         self.y = input['y'].to(self.device)
 
@@ -166,6 +169,8 @@ class PathWiseSelectorModel(BaseSelector):
 
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
         self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
+
+        self.real_y_cf = self.netf_theta(self.x_cf).softmax(-1).reshape(self.x_cf.shape[0], self.opt.f_theta_output_classes)
 
 
 

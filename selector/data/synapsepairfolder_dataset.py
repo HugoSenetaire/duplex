@@ -116,8 +116,8 @@ class SynapsePairFolderDataset(BaseDataset,):
         transformed = self.transform(image=sample, imagecf=target_sample)
         # assert False
         output = {
-            # "sample_path": path,
-            # "target_path": target_path,
+            "x_path": path,
+            "x_cf_path": target_path,
             "x": transformed["image"].to(torch.float32),
             "x_cf": transformed["imagecf"].to(torch.float32),
             "y": torch.tensor(class_index,),

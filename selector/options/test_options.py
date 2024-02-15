@@ -28,6 +28,9 @@ class TestOptions(BaseOptions):
         parser.add_argument('--mc_sample_z_test', type=int, default=1, help='Number of MC samples for z')
         parser.add_argument('--imp_sample_z_test', type=int, default=1, help='Number of Importance samples for z')
 
+        parser.add_argument('--save_counterfactual', action='store_true', help='Save counterfactual images')
+        parser.add_argument('--save_original', action='store_true', help='Save original images')
+        parser.add_argument('--save_mask', action='store_true', help='Save masks')
         # rewrite devalue values
         # parser.set_defaults(model='test')
         # To avoid cropping, the load_size should be the same as crop_size

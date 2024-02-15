@@ -10,7 +10,7 @@ The script supports continue/resume training. Use '--continue_train' to resume y
 
 Example:
     Train a pathwise model:
-        python train.py --dataroot /nrs/funke/senetaireh/data --name duckmnist --model pathwise_selector
+        python train.py --dataroot /nrs/funke/senetaire/data --name duckmnist --model pathwise_selector
    
 
 See options/base_options.py and options/train_options.py for more training options.
@@ -27,6 +27,7 @@ import tqdm
 import torch
 import os
 import pandas as pd
+import re
 
 if __name__ == '__main__':
     opt = TestOptions().parse()   # get training options
@@ -45,43 +46,34 @@ if __name__ == '__main__':
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
+    idx_to_class = dataset.dataset.idx_to_class
+
     if opt.results_dir is None:
-        results_dir = os.path.join(opt.checkpoints_dir, opt.name, 'results', opt.phase,)
+        results_dir = os.path.join(opt.checkpoints_dir, opt.name, 'results', opt.phase+"_load_epoch_"+str(opt.load_epoch),)
     else :
         results_dir = opt.results_dir
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
 
-    original_dir = os.path.join(results_dir, 'original')
-    if not os.path.exists(original_dir):
-        os.makedirs(original_dir)
+    if opt.save_original:
+        original_dir = os.path.join(results_dir, 'original')
+        if not os.path.exists(original_dir):
+            os.makedirs(original_dir)
+      
 
-    counterfactual_dir = os.path.join(results_dir, 'counterfactual')
-    if not os.path.exists(original_dir):
-        os.makedirs(original_dir)
+    if opt.save_counterfactual:
+        counterfactual_dir = os.path.join(results_dir, 'counterfactual')
+        if not os.path.exists(original_dir):
+            os.makedirs(original_dir)
+       
     
-    mask_dir = os.path.join(results_dir, 'mask')
-    if not os.path.exists(mask_dir):
-        os.makedirs(mask_dir)
-
-    target_original_dir = {}
-    for k in range(opt.f_theta_output_classes):
-        target_original_dir[k] = os.path.join(original_dir, str(k))
-        if not os.path.exists(target_original_dir[k]):
-            os.makedirs(target_original_dir[k])
+    if opt.save_mask:
+        mask_dir = os.path.join(results_dir, 'mask')
+        if not os.path.exists(mask_dir):
+            os.makedirs(mask_dir)
+      
     
-    target_counterfactual_dir = {}
-    for k in range(opt.f_theta_output_classes):
-        target_counterfactual_dir[k] = os.path.join(counterfactual_dir, str(k))
-        if not os.path.exists(target_counterfactual_dir[k]):
-            os.makedirs(target_counterfactual_dir[k])
-
-    target_mask_dir = {}
-    for k in range(opt.f_theta_output_classes):
-        target_mask_dir[k] = os.path.join(mask_dir, str(k))
-        if not os.path.exists(target_mask_dir[k]):
-            os.makedirs(target_mask_dir[k])
-
+    
 
     with torch.no_grad():
         # Validation every epoch
@@ -104,20 +96,40 @@ if __name__ == '__main__':
                 y_cf = model.y_cf[k].unsqueeze(0).cpu()
                 real_y_cf = model.real_y_cf[k].unsqueeze(0).cpu()
                 dic['idx'].append(count)
-                name_image = f'{count:05d}.png'
+                name_x = data['x_path'][k].split('/')[-1]
+                aux_dir = os.path.join(opt.phase, idx_to_class[y.item()], idx_to_class[y_cf.item()])
+                
+                # if path_x_cf is not None : # Ie pre registered counterfactual
+                    # new_directory = re.sub('train/\w+/\w+/\d+(_\w+)?\.\w+', '', "/nrs/funke/adjavond/data/duplex/cyclegan/train/0_gaba/1_acetylcholine/1288_train.png")
                 x = tensor2im(x, )
                 x_cf = tensor2im(x_cf,)
                 pi = tensor2im(pi, )
-                save_image(x, os.path.join(target_original_dir[target], name_image))
-                save_image(x_cf, os.path.join(target_counterfactual_dir[target], name_image))
-                save_image(pi, os.path.join(target_mask_dir[target], name_image))
-                dic['name'].append(name_image)
+                if opt.save_original:
+                    new_dir = os.path.join(original_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(x, new_path)
+                if opt.save_counterfactual:
+                    new_dir = os.path.join(counterfactual_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(x_cf, new_path)
+
+                if opt.save_mask:
+                    new_dir = os.path.join(mask_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(pi, new_path)
+                dic['name'].append(name_x)
                 dic['y'].append(target)
                 dic['y_cf'].append(y_cf.item())
-                dic['pred_y_cf'].append(model.real_y_cf[k].argmax(-1).item())
                 for j in range(opt.f_theta_output_classes):
                     dic[f'real_y_cf_{j}'].append(real_y_cf[0,j].item())
                 count+=1
+
 
 
         df = pd.DataFrame(dic)

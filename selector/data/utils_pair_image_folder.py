@@ -35,8 +35,11 @@ def make_dataset(
     class_to_idx: Optional[Dict[str, int]] = None,
     extensions: Optional[Union[str, Tuple[str, ...]]] = None,
     is_valid_file: Optional[Callable[[str], bool]] = None,
+    bypass_counterfactual: bool = False,
 ) -> List[Tuple[str, int]]:
     """Generates a list of samples of a form (path_to_sample, class).
+    If bypass_counterfactual is True, we will only return the path to the original image and 
+    dummy counterfactuals in a random order.
 
     See :class:`DatasetFolder` for details.
 
@@ -44,6 +47,7 @@ def make_dataset(
     by default.
     """
     directory = os.path.expanduser(directory)
+
 
     if class_to_idx is None:
         _, class_to_idx = find_classes(directory)
@@ -75,21 +79,29 @@ def make_dataset(
             if target_class == source_class:
                 continue
             target_dir = os.path.join(paired_directory, source_class, target_class)
-            if os.path.isdir(target_dir):
+            if bypass_counterfactual :
+                target_directories[target_class] = target_dir
+            elif os.path.isdir(target_dir):
                 target_directories[target_class] = target_dir
         # Target directory : For a given source, we get the corresponding target directory for each possible target source.
     
         for root, _, fnames in sorted(os.walk(source_dir, followlinks=True)):
+
             for fname in sorted(fnames):
                 path = os.path.join(root, fname)
                 current_dic = {str(class_to_idx[source_class]): path}
                 if is_valid_file(path):
                     for target_class, target_dir in target_directories.items():
-                        target_path = os.path.join(target_dir, fname.strip("_train")[0]+".png")
-                        if os.path.isfile(target_path) and is_valid_file(target_path):
-                            item = path, target_path, class_index, class_to_idx[target_class]
+                        if bypass_counterfactual:
+                            item = path, "None", class_index, class_to_idx[target_class]
                             instances.append(item)
-                            current_dic[str(class_to_idx[target_class])] = target_path
+                            current_dic[str(class_to_idx[target_class])] = "None"
+                        else :
+                            target_path = os.path.join(target_dir, fname)        
+                            if os.path.isfile(target_path) and is_valid_file(target_path):
+                                item = path, target_path, class_index, class_to_idx[target_class]
+                                instances.append(item)
+                                current_dic[str(class_to_idx[target_class])] = target_path
                 available_classes.update([source_class, target_class])
                 instances_2.append((current_dic.copy(), class_index,))
 

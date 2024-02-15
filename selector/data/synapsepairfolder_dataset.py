@@ -33,6 +33,8 @@ class SynapsePairFolderDataset(BaseDataset,):
         """
         BaseDataset.modify_commandline_options(parser, is_train)
         parser.add_argument("--dataroot_counterfactual", type=str, default="/nrs/funke/adjavond/data/duplex/cyclegan/", help="path to the counterfactual dataset")
+        parser.add_argument("--bypass_counterfactual", action="store_true", help="If true, we will only return the path to the original \
+                            image and dummy counterfactuals. Useful in test.")
         return parser
     
 
@@ -76,11 +78,12 @@ class SynapsePairFolderDataset(BaseDataset,):
         super().__init__(opt)
 
         source_directory = os.path.join(opt.dataroot, split)
-        paired_directory = os.path.join(opt.dataroot_counterfactual, split)        
+        paired_directory = os.path.join(opt.dataroot_counterfactual, split)       
         classes, class_to_idx = find_classes(source_directory)
+        self.idx_to_class = {v: k for k, v in class_to_idx.items()}
         self.classes = classes
         self.class_to_idx = class_to_idx
-        self.samples, _ = make_dataset(source_directory, paired_directory, class_to_idx, is_valid_file=is_image_file,)
+        self.samples, _ = make_dataset(source_directory, paired_directory, class_to_idx, is_valid_file=is_image_file, bypass_counterfactual=opt.bypass_counterfactual)
         # self.transform = transform
         if self.augment and self.split == "train":
             self.transform = A.Compose(
@@ -106,7 +109,10 @@ class SynapsePairFolderDataset(BaseDataset,):
     def __getitem__(self, index):
         path, target_path, class_index, target_class_index = self.samples[index]
         sample = default_loader(path)
-        target_sample = default_loader(target_path)
+        if self.opt.bypass_counterfactual:
+            target_sample = np.zeros_like(sample)
+        else :
+            target_sample = default_loader(target_path)
         transformed = self.transform(image=sample, imagecf=target_sample)
         # assert False
         output = {

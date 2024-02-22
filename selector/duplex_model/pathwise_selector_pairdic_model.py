@@ -74,3 +74,6 @@ class PathWiseSelectorPairDicModel(
         self.x_cf_expanded = self.x_cf_expanded.to(self.device)
         self.y_cf_expanded = self.y_cf_expanded.to(self.device)
 
+        self.input_selector = torch.cat([self.x_expanded, self.x_cf_expanded], dim=2) if self.use_counterfactual_as_input else self.x_expanded
+
+

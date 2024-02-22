@@ -39,6 +39,8 @@ class PathWiseSelectorModel(BaseSelector):
         is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma. In the case of use_pi_as_mask, it is still different \
         from pi_gaussian_smoothing_sigma  as the smoothing happens after the upsampling.')
         
+        parser.add_argument('--use_counterfactual_as_input', action='store_true', help='If specified, the counterfactuals are used as input to the selector')
+        
 
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
@@ -66,7 +68,7 @@ class PathWiseSelectorModel(BaseSelector):
         self.loss_names = ["ising_regularization", "reg", "class_z", "class_notemp", "class_no_selector", "class_pi", "acc_z", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x', 'x_cf', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z',  'z_to_save_notemp', 'x_tilde_notemp']
+        self.visual_names = ['x_expanded', 'x_cf_expanded', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z',  'z_to_save_notemp', 'x_tilde_notemp']
 
         self.use_pi_as_mask = opt.use_pi_as_mask
         self.pi_gaussian_smoothing_sigma = opt.pi_gaussian_smoothing_sigma
@@ -85,8 +87,13 @@ class PathWiseSelectorModel(BaseSelector):
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
         self.model_names = ['g_gamma', 'f_theta',]
 
+        self.use_counterfactual_as_input = opt.use_counterfactual_as_input
+
         # define networks (both selectors and classifiers)
         print("Setting up selector")
+        if self.use_counterfactual_as_input:
+            opt.input_nc = opt.input_nc * 2
+        
         self.netg_gamma = define_selector(
                                 opt.input_nc,
                                 opt.ngf,
@@ -170,6 +177,8 @@ class PathWiseSelectorModel(BaseSelector):
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
         self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
 
+        self.input_selector = torch.cat([self.x_expanded, self.x_cf_expanded], dim=2) if self.use_counterfactual_as_input else self.x_expanded
+
         self.real_y_cf = self.netf_theta(self.x_cf).softmax(-1).reshape(self.x_cf.shape[0], self.opt.f_theta_output_classes)
 
 
@@ -198,99 +207,105 @@ class PathWiseSelectorModel(BaseSelector):
 
     def forward(self, ):
         """Run forward pass for training; called by function <optimize_parameters>."""
-        self.pi_logit = self.netg_gamma(self.x)
+        self.pi_logit_expanded = self.netg_gamma(self.input_selector.flatten(0,1))
         if self.pi_gaussian_smoothing_sigma>0 :
-            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
+            self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
 
 
         if self.upscale and not self.upscale_after_sampling :
-            self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
+            self.pi_logit_expanded = self.upscaler(self.pi_logit_expanded)
         else :
-            self.pi_logit = self.pi_logit.reshape(self.x.shape[0], 1, *[s//2**self.opt.downscale_asymmetric for s in self.x.shape[2:]])
+            self.pi_logit_expanded = self.pi_logit_expanded
 
-        self.log_pi = F.logsigmoid(self.pi_logit)
+        self.log_pi_expanded = F.logsigmoid(self.pi_logit_expanded)
 
         # Sample from the mask distribution
         if self.use_pi_as_mask :
-            self.z = self.log_pi.exp()
+            self.z_expanded = self.log_pi_expanded.exp()
             if self.upscale and self.upscale_after_sampling :
-                self.z = self.upscaler(self.z)
-            self.z = self.z.unsqueeze(0)
+                self.z_expanded = self.upscaler(self.z_expanded)
         else :
-            self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
+            self.z_expanded = self.p_z.rsample(1, self.log_pi_expanded).reshape(self.log_pi_expanded.shape) # Need Rsample here to allow pathwise estimation
             if self.upscale and self.upscale_after_sampling :
-                self.z = self.upscaler(self.z.flatten(0,1))
-            self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+                self.z_expanded = self.upscaler(self.z_expanded)
+            self.z_expanded = self.z_expanded
 
         if self.z_gaussian_smoothing_sigma>0 :
-            self.z = gaussian_filter_2d(self.z, sigma=self.z_gaussian_smoothing_sigma)
+            self.z_expanded = gaussian_filter_2d(self.z_expanded, sigma=self.z_gaussian_smoothing_sigma)
         
-        self.z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
-        self.x_tilde = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
-        self.y_tilde = self.netf_theta(self.x_tilde)
+        self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
+        self.x_tilde_expanded = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded).flatten(0,1)
+        self.y_tilde_expanded = self.netf_theta(self.x_tilde_expanded)
 
 
     def forward_val(self,):
         """Run forward pass to create all variables required for metrics and visualization; called by both functions <eval> and <test>.
         """
         # Calculate the mask distribution parameter
-        self.pi_logit = self.netg_gamma(self.x)
+        
+        self.pi_logit_expanded = self.netg_gamma(self.input_selector.flatten(0,1))
         if self.pi_gaussian_smoothing_sigma>0 :
-            self.pi_logit = gaussian_filter_2d(self.pi_logit, sigma=self.pi_gaussian_smoothing_sigma)
-        if self.upscale and not self.upscale_after_sampling :
-            self.pi_logit = self.upscaler(self.pi_logit).reshape(self.x.shape[0], 1, *self.x.shape[2:])
-        else :
-            self.pi_logit = self.pi_logit.reshape(self.x.shape[0], 1, *[s//2**self.opt.downscale_asymmetric for s in self.x.shape[2:]])
+            self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
 
-        self.log_pi = F.logsigmoid(self.pi_logit)
+        # Upscale if necessary :
+        if self.upscale and not self.upscale_after_sampling :
+            self.pi_logit_expanded = self.upscaler(self.pi_logit_expanded)
+        else :
+            self.pi_logit_expanded = self.pi_logit_expanded
+
+        self.log_pi_expanded = F.logsigmoid(self.pi_logit_expanded)
         
 
-        # Sample from the mask distribution
-        self.z = self.p_z.rsample(self.sample_z, self.log_pi) # Need Rsample here to allow pathwise estimation
-        self.z = self.z.reshape(self.sample_z, self.pi_logit.shape[0], 1, *self.pi_logit.shape[2:]) 
+        # Sample from the mask distribution with temperature relaxation
+        self.z_expanded = self.p_z.rsample(1, self.log_pi_expanded) # Need Rsample here to allow pathwise estimation
+        self.z_expanded = self.z_expanded.reshape(self.pi_logit_expanded.shape) 
 
 
-        # Sample
-        self.z_notemp = self.p_z_notemp.sample(self.sample_z, self.log_pi) 
-        self.z_notemp = self.z_notemp.reshape(self.sample_z, self.pi_logit.shape[0], 1, *self.pi_logit.shape[2:])
+        # Sample from the mask distribution without temperature relaxation
+        self.z_notemp_expanded = self.p_z_notemp.sample(1, self.log_pi_expanded) 
+        self.z_notemp_expanded = self.z_notemp_expanded.reshape(self.pi_logit_expanded.shape)
         
 
         # Upscale if necessary :
         if self.upscale and self.upscale_after_sampling :
-            self.log_pi = self.upscaler(self.log_pi)
-            self.z = self.upscaler(self.z.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
-            self.z_notemp = self.upscaler(self.z_notemp.flatten(0,1)).reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            self.z_expanded = self.upscaler(self.z_expanded)
+            self.z_notemp_expanded = self.upscaler(self.z_notemp_expanded)
+            self.log_pi_expanded = self.upscaler(self.log_pi_expanded)
+
            
         if self.z_gaussian_smoothing_sigma>0 :
-            self.z = gaussian_filter_2d(self.z, sigma=self.z_gaussian_smoothing_sigma)
-            self.z_notemp = gaussian_filter_2d(self.z_notemp, sigma=self.z_gaussian_smoothing_sigma)
-            self.log_pi = gaussian_filter_2d(self.log_pi, sigma=self.z_gaussian_smoothing_sigma)
+            self.z_expanded = gaussian_filter_2d(self.z_expanded, sigma=self.z_gaussian_smoothing_sigma)
+            self.z_notemp_expanded = gaussian_filter_2d(self.z_notemp_expanded, sigma=self.z_gaussian_smoothing_sigma)
+            self.log_pi_expanded = gaussian_filter_2d(self.log_pi_expanded, sigma=self.z_gaussian_smoothing_sigma)
+
+        self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+        self.z_notemp_expanded = self.z_notemp_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+        self.log_pi_expanded = self.log_pi_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
         # Create mixed images
-        self.x_tilde_pi = (self.x_expanded * self.log_pi.exp().unsqueeze(0) + (1 - self.log_pi.exp().unsqueeze(0)) * self.x_cf_expanded).flatten(0,1)
-        self.x_tilde_z = (self.x_expanded * self.z + (1 - self.z) * self.x_cf_expanded).flatten(0,1)
-        self.x_tilde_notemp = (self.x_expanded * self.z_notemp + (1 - self.z_notemp) * self.x_cf_expanded).flatten(0,1)
+        self.x_tilde_pi = (self.x_expanded * self.log_pi_expanded.exp() + (1 - self.log_pi_expanded.exp()) * self.x_cf_expanded)
+        self.x_tilde_z = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded)
+        self.x_tilde_notemp = (self.x_expanded * self.z_notemp_expanded + (1 - self.z_notemp_expanded) * self.x_cf_expanded)
 
 
-        self.z_to_save = (self.z.flatten(0,1) * 2) -1
-        self.pi_to_save = (self.log_pi.exp() * 2) -1
-        self.z_to_save_notemp = (self.z_notemp.flatten(0,1) * 2) -1
+        self.z_to_save = (self.z_expanded * 2) -1
+        self.pi_to_save = (self.log_pi_expanded.exp() * 2) -1
+        self.z_to_save_notemp = (self.z_notemp_expanded * 2) -1
 
-        
-        self.x_tilde_z = self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
-        self.x_tilde_notemp = self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
-        self.x_tilde_pi = self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:])
+ 
         
         # Calculate the classifier output on the mixed images and the original images
-        self.y_tilde_z = self.netf_theta(self.x_tilde_z)
-        self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp)
-        self.y_no_selector = self.netf_theta(self.x)
-        self.y_tilde_pi = self.netf_theta(self.x_tilde_pi)
+        self.y_tilde_z = self.netf_theta(self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_no_selector = self.netf_theta(self.x.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_tilde_pi = self.netf_theta(self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
 
         self.y_tilde_z = self.y_tilde_z.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_no_selector = self.y_no_selector.reshape(self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_pi = self.y_tilde_pi.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
+
+
 
 
     def calculate_batched_loss(self):
@@ -300,13 +315,13 @@ class PathWiseSelectorModel(BaseSelector):
 
         # Likelihood guidance 
         self.loss_class = F.cross_entropy(
-            self.y_tilde.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
+            self.y_tilde_expanded.reshape(self.sample_z*self.x.shape[0], self.opt.f_theta_output_classes),
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
         self.loss_class = self.loss_class.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
         
         # Regularization
-        self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
+        self.loss_reg =  self.z_expanded.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
         
         # Ising regularization :
@@ -325,12 +340,12 @@ class PathWiseSelectorModel(BaseSelector):
         Should create all measures named in loss_names
         """
         # Regularization
-        self.loss_reg =  self.z.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
+        self.loss_reg =  self.z_expanded.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
         
         # Ising regularization :
         if self.lambda_ising_regularization > 0.0:
-            current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            current_z = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
             self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
                                     + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel
         else :
@@ -338,9 +353,9 @@ class PathWiseSelectorModel(BaseSelector):
         
 
         # Quantile metrix
-        self.loss_quantile_pi_25 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.25, dim=1)
-        self.loss_quantile_pi_50 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.50, dim=1)
-        self.loss_quantile_pi_75 = self.log_pi.exp().reshape(self.x.shape[0], -1).quantile(0.75, dim=1)
+        self.loss_quantile_pi_25 = self.log_pi_expanded.exp().reshape(self.x.shape[0], -1).quantile(0.25, dim=1)
+        self.loss_quantile_pi_50 = self.log_pi_expanded.exp().reshape(self.x.shape[0], -1).quantile(0.50, dim=1)
+        self.loss_quantile_pi_75 = self.log_pi_expanded.exp().reshape(self.x.shape[0], -1).quantile(0.75, dim=1)
 
         # Accuracy metrics
         self.loss_acc_z = (self.y_tilde_z.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
@@ -383,7 +398,8 @@ class PathWiseSelectorModel(BaseSelector):
         """Backward through the loss for the selector g_gamma"""
         # Total loss
         self.loss_total = self.loss_class.mean() 
-        self.loss_total = self.loss_total + self.scheduler_lambda_regularization() * self.loss_reg.mean() \
+        self.loss_total = self.loss_total \
+                        + self.scheduler_lambda_regularization() * self.loss_reg.mean() \
                         + self.scheduler_ising_regularization() * self.loss_ising_regularization.mean()
         self.loss_total.backward()
 

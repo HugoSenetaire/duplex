@@ -4,7 +4,7 @@ from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
 import duplex_model.networks as networks
-
+import time
 
 class BaseSelector(ABC):
     """This class is an abstract base class (ABC) for models.
@@ -35,7 +35,9 @@ class BaseSelector(ABC):
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
-        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)  # save all the checkpoints to save_dir
+        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name +  time.strftime("%Y%m%d-%H%M%S"))  # save all the checkpoints to save_dir
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
         if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
             torch.backends.cudnn.benchmark = True
         self.loss_names = []
@@ -142,7 +144,10 @@ class BaseSelector(ABC):
         visual_ret = OrderedDict()
         for name in self.visual_names:
             if isinstance(name, str):
-                visual_ret[name] = getattr(self, name)
+                sample = getattr(self, name)  # We just want a single of the samples here, not everything. Hence thhe [0]
+                if len(sample.shape) == 5:
+                    sample = sample.flatten(0,1)
+                visual_ret[name] = sample  # We just want a single of the samples here, not everything. Hence thhe [0]
         return visual_ret
 
     def get_current_losses(self):
@@ -240,8 +245,8 @@ class BaseSelector(ABC):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(self.save_dir, load_filename)
                 net = getattr(self, 'net' + name)
-                if isinstance(net, torch.nn.DataParallel):
-                    net = net.module
+                # if isinstance(net, torch.nn.DataParallel):
+                    # net = net.module
                 print('loading the model from %s' % load_path)
                 # if you are using PyTorch newer than 0.4 (e.g., built from
                 # GitHub source), you can remove str() on self.device

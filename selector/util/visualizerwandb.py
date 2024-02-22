@@ -64,7 +64,7 @@ class VisualizerWandb():
             label (List) - - list of labels for each image
         """
 
-        test_x = sample['x'][0]
+        # test_x = sample['x'][0]
         aux_pi = (sample['pi_to_save'][0]+1)*0.5
 
         nrows = len(label)
@@ -72,9 +72,8 @@ class VisualizerWandb():
         fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols*10, nrows*10))
         for i in range(len(label)):
             aux_pi = (sample['pi_to_save'][i]+1)*0.5
-            
-            aux_x = sample['x'][i] * aux_pi + (1-aux_pi) * (-1)
-            aux_x_cf = sample['x_cf'][i] * (1-aux_pi) + (aux_pi) * (-1)
+            aux_x = sample['x_expanded'][i] * aux_pi + (1-aux_pi) * (-1)
+            aux_x_cf = sample['x_cf_expanded'][i] * (1-aux_pi) + (aux_pi) * (-1)
 
 
             axs[i, -4].imshow(util.tensor2im(aux_x.unsqueeze(0)), cmap='gray')
@@ -82,11 +81,11 @@ class VisualizerWandb():
             axs[i, -3].imshow(util.tensor2im(aux_x_cf.unsqueeze(0)), cmap='gray')
             axs[i, -3].axis('off')
 
-            axs[i, -2].imshow(util.tensor2im(sample['x'][i,None]), cmap='gray')
+            axs[i, -2].imshow(util.tensor2im(sample['x_expanded'][i,None]), cmap='gray')
             axs[i, -2].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, )
             axs[i, -2].axis('off')
             
-            axs[i, -1].imshow(util.tensor2im(sample['x_cf'][i,None]), cmap='gray')
+            axs[i, -1].imshow(util.tensor2im(sample['x_cf_expanded'][i,None]), cmap='gray')
             axs[i, -1].imshow(util.tensor2im(sample['pi_to_save'][i,None])[:,:,-1], cmap='Reds', alpha=0.2, )
             axs[i, -1].axis('off')
 

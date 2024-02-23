@@ -1,19 +1,19 @@
 import torch
 import torch.nn.functional as F
-from duplex_model.pathwise_selector_model import PathWiseSelectorModel
+from selector.duplex_trainer.pathwise_trainer import PathWiseTrainer
 from starganv2.inference.model import LatentInferenceModel
 import numpy as np 
 
 
-class PathWiseSelectorOTFModel(PathWiseSelectorModel):
+class PathWiseOTFTrainer(PathWiseTrainer):
     """
-    This class implements the PathWiseSelectorModel for on-the-fly counterfactual generation.
+    This class implements the PathWiseTrainer for on-the-fly counterfactual generation.
     This models stores the latent inference model and the counterfactual generation mode.
     """
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True):
-        PathWiseSelectorModel.modify_commandline_options(parser, is_train)
+        PathWiseTrainer.modify_commandline_options(parser, is_train)
         """Add new dataset-specific options, and rewrite default values for existing options.
         Here add the options for the latent inference model and the counterfactual generation.
         Parameters:
@@ -46,7 +46,7 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        PathWiseSelectorModel.__init__(self, opt)
+        PathWiseTrainer.__init__(self, opt)
         self.model_names.append('latent_inference_model')
 
         self.counterfactual_mode = opt.counterfactual_mode
@@ -56,7 +56,7 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
         num_domains = opt.f_theta_output_classes
         checkpoint_iter = opt.load_iter_latent_mdodel
 
-        self.netlatent_inference_model = LatentInferenceModel(
+        self.latent_inference_model = LatentInferenceModel(
             checkpoint_dir=opt.latent_model_checkpoint_dir,
             img_size=img_size,
             style_dim=style_dim,
@@ -64,8 +64,8 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
             num_domains=num_domains,
             w_hpf=0.0,
         )
-        self.netlatent_inference_model.load_checkpoint(checkpoint_iter)
-        self.netlatent_inference_model.to(self.device)
+        self.latent_inference_model.load_checkpoint(checkpoint_iter)
+        self.latent_inference_model.to(self.device)
         self.batch_size_counterfactual_generation = opt.batch_size_counterfactual_generation
 
         
@@ -85,8 +85,8 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
 
         if self.counterfactual_mode == 'fully_random':
             # Simply generate one counterfactual and leave it unchecked by the classifier.
-            xcf = self.netlatent_inference_model(x, target).reshape(x.shape)
-            real_y_cf = self.netf_theta(xcf).softmax(-1).reshape(x.shape[0], self.opt.f_theta_output_classes)
+            xcf = self.latent_inference_model(x, target).reshape(x.shape)
+            real_y_cf = self.classifier(xcf).softmax(-1).reshape(x.shape[0], self.opt.f_theta_output_classes)
 
 
         # TODO : If batch_size * batch_size_counterfactual_generation is too big, it will crash with Integer out of range error
@@ -97,13 +97,13 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
             target_multiple = target.unsqueeze(0).expand(self.batch_size_counterfactual_generation, *target.shape).flatten(0,1)
 
             # Generate batch_size_counterfactual_generation counterfactuals
-            xcf = self.netlatent_inference_model(
+            xcf = self.latent_inference_model(
                 x_multiple.to(self.device),
                 target_multiple.to(self.device),
             )
 
             # Evaluate the counterfactuals
-            p = self.netf_theta(xcf).softmax(-1).reshape(self.batch_size_counterfactual_generation, x.shape[0], self.opt.f_theta_output_classes)
+            p = self.classifier(xcf).softmax(-1).reshape(self.batch_size_counterfactual_generation, x.shape[0], self.opt.f_theta_output_classes)
             xcf = xcf.reshape(self.batch_size_counterfactual_generation, x.shape[0], *x.shape[1:])
             target_one_hot = F.one_hot(target, self.opt.f_theta_output_classes).unsqueeze(0).expand(self.batch_size_counterfactual_generation, target.shape[0], self.opt.f_theta_output_classes)        
             indices = torch.argmin((p - target_one_hot).abs().sum(-1), dim=0)
@@ -182,5 +182,3 @@ class PathWiseSelectorOTFModel(PathWiseSelectorModel):
               same shape, but have {} and {}".format(self.x_cf_expanded.shape, self.x_expanded.shape)
         self.x_cf_expanded = self.x_cf_expanded.to(self.device)
         self.y_cf_expanded = self.y_cf_expanded.to(self.device)
-
-        self.input_selector = torch.cat([self.x_expanded, self.x_cf_expanded], dim=2) if self.use_counterfactual_as_input else self.x_expanded

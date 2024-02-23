@@ -1,25 +1,18 @@
 import torch
 import torch.nn.functional as F
-import itertools
-from duplex_model.base_selector import BaseSelector
-from duplex_model.mask_distribution import IndependentRelaxedBernoulli
-from duplex_model.networks import define_selector
-from dapi_networks.network_utils import init_network, run_inference
+from duplex_trainer.base_trainer import BaseTrainer
+from attribution_model import initAttributionModel
 from util.gaussian_smoothing import gaussian_filter_2d
-from duplex_model.scheduler_lambda import get_scheduler_lambda
+from duplex_trainer.scheduler_lambda import get_scheduler_lambda
 
 
-class PathWiseSelectorModel(BaseSelector):
+class PathWiseTrainer(BaseTrainer):
     """
-    This class implements the CycleGAN model, for learning image-to-image translation without paired data.
-
-    The model training requires '--dataset_mode unaligned' dataset.
-    By default, it uses a '--netG resnet_9blocks' ResNet generator,
-    a '--netD basic' discriminator (PatchGAN introduced by pix2pix),
-    and a least-square GANs objective ('--gan_mode lsgan').
-
-    CycleGAN paper: https://arxiv.org/pdf/1703.10593.pdf
+    This class implements the pathwise selector trainer for 
+    a DupLEX models. It requires a selector network and a classifier network and 
+    a dataset that provides counterfactuals. 
     """
+
 
     @staticmethod
     def modify_commandline_options(parser, is_train=True, opt = None):
@@ -30,7 +23,7 @@ class PathWiseSelectorModel(BaseSelector):
         Returns:
             the modified parser.
         """
-        parser.add_argument('--model_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[model_suffix].pth will be loaded as the generator.')
+        parser.add_argument('--trainer_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[trainer_suffix].pth will be loaded as the generator.')
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
         parser.add_argument('--pi_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
@@ -38,17 +31,11 @@ class PathWiseSelectorModel(BaseSelector):
         parser.add_argument('--z_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the sampled mask \
         is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma. In the case of use_pi_as_mask, it is still different \
         from pi_gaussian_smoothing_sigma  as the smoothing happens after the upsampling.')
-        
-        parser.add_argument('--use_counterfactual_as_input', action='store_true', help='If specified, the counterfactuals are used as input to the selector')
-        
 
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
         parser.add_argument('--lambda_regularization_scheduler', type=str, default='linear', help='Scheduler for the lambda_regularization parameter. [linear | constant | cosine]')
         parser.add_argument('--lambda_regularization_scheduler_targetepoch', type=int, default=10, help='Target epoch for the lambda_regularization scheduler to reach the lambda_regularization value')
-
-
-        parser.add_argument('--temperature_relax', type=float, default=1.0, help='Temperature for the relaxed mask distribution')
 
         parser.add_argument('--lambda_ising_regularization', type=float, default=-1.0, help='Ising regularization strenght to enforce connectivity in the mask selection')
         parser.add_argument('--lambda_ising_regularization_init', type=float, default=0., help='Initial value for the lambda_ising_regularization scheduler')
@@ -63,12 +50,12 @@ class PathWiseSelectorModel(BaseSelector):
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
-        BaseSelector.__init__(self, opt)
-        # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["ising_regularization", "reg", "class_z", "class_notemp", "class_no_selector", "class_pi", "acc_z", "acc_notemp", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
+        BaseTrainer.__init__(self, opt)
+        # specify the training losses you want to print out. The training/test scripts will call <Basetrainer.get_current_losses>
+        self.loss_names = ["ising_regularization", "reg", "class_z", "class_no_selector", "class_pi", "acc_z", "acc_no_selector", "acc_pi", "quantile_pi_25", "quantile_pi_50", "quantile_pi_75"]
 
-        # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
-        self.visual_names = ['x_expanded', 'x_cf_expanded', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z',  'z_to_save_notemp', 'x_tilde_notemp']
+        # specify the images you want to save/display. The training/test scripts will call <Basetrainer.get_current_visuals>
+        self.visual_names = ['x_expanded', 'x_cf_expanded', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z', ]
 
         self.use_pi_as_mask = opt.use_pi_as_mask
         self.pi_gaussian_smoothing_sigma = opt.pi_gaussian_smoothing_sigma
@@ -84,47 +71,19 @@ class PathWiseSelectorModel(BaseSelector):
         # check args consistency
         # NA for Now
 
-        # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>.
-        self.model_names = ['g_gamma', 'f_theta',]
+        # specify the trainers you want to save to the disk. The training/test scripts will call <Basetrainer.save_networks> and <Basetrainer.load_networks>.
+        
 
-        self.use_counterfactual_as_input = opt.use_counterfactual_as_input
 
         # define networks (both selectors and classifiers)
-        print("Setting up selector")
-        if self.use_counterfactual_as_input:
-            opt.input_nc = opt.input_nc * 2
-        
-        self.netg_gamma = define_selector(
-                                opt.input_nc,
-                                opt.ngf,
-                                opt.net_selector,
-                                opt.norm, # In the case of the mask one just needs the output mask
-                                not opt.no_dropout,
-                                opt.init_type,
-                                opt.init_gain,                            
-                                self.gpu_ids,
-                                opt.f_theta_input_shape,
-                                downscale_asymmetric=opt.downscale_asymmetric,
-                                ).to(self.device)
-        
-        print("Setting up mask distribution")
-        self.p_z = IndependentRelaxedBernoulli(temperature_relax=opt.temperature_relax)  # mask distribution
-        self.p_z_notemp = IndependentRelaxedBernoulli(temperature_relax=0.001)  # mask distribution
-
-        # if self.isTrain:  # define classifiers
-        print("Setting up classifier")
-        self.netf_theta = init_network(
-            checkpoint_path=opt.f_theta_checkpoint,
-            input_shape=opt.f_theta_input_shape,
-            net_module=opt.f_theta_net,
-            input_nc=opt.f_theta_input_nc,
-            output_classes=opt.f_theta_output_classes,
-            downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)]
-            ).to(self.device)
-            
+        print("Setting Duplex")
+        self.duplex = initAttributionModel(opt)
+        self.trainer_names = ['selector']
+        self.classifier = self.duplex.classifier
+        self.selector = self.duplex.selector
+        self.p_z = self.duplex.mask_distribution
 
         if self.isTrain:
-
             assert opt.lambda_regularization > 0.0, "lambda_regularization must be > 0.0"
             self.lambda_regularization = opt.lambda_regularization
 
@@ -146,8 +105,8 @@ class PathWiseSelectorModel(BaseSelector):
             
             
 
-        # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            self.optimizer_selector = torch.optim.Adam(self.netg_gamma.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+        # initialize optimizers; schedulers will be automatically created by function <Basetrainer.setup>.
+            self.optimizer_selector = torch.optim.Adam(self.selector.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_selector)
 
     def set_input(self, input):
@@ -177,9 +136,7 @@ class PathWiseSelectorModel(BaseSelector):
         self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
         self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
 
-        self.input_selector = torch.cat([self.x_expanded, self.x_cf_expanded], dim=2) if self.use_counterfactual_as_input else self.x_expanded
-
-        self.real_y_cf = self.netf_theta(self.x_cf).softmax(-1).reshape(self.x_cf.shape[0], self.opt.f_theta_output_classes)
+        self.real_y_cf = self.classifier(self.x_cf).softmax(-1).reshape(self.x_cf.shape[0], self.opt.f_theta_output_classes)
 
 
 
@@ -193,7 +150,7 @@ class PathWiseSelectorModel(BaseSelector):
         IMP sample: Importance sampling to reduce the bias of the likelihood estimate (see Burda et al. 2015 Importance Weighted Autoencoders)
 
         """
-        if self.netg_gamma.training and self.isTrain:
+        if self.selector.training and self.isTrain:
             self.mc_sample_z = self.opt.mc_sample_z
             self.imp_sample_z = self.opt.imp_sample_z
         else:
@@ -207,11 +164,16 @@ class PathWiseSelectorModel(BaseSelector):
 
     def forward(self, ):
         """Run forward pass for training; called by function <optimize_parameters>."""
-        self.pi_logit_expanded = self.netg_gamma(self.input_selector.flatten(0,1))
+        self.pi_logit_expanded = self.duplex._get_mask_param(
+                                                self.x_expanded.flatten(0,1),
+                                                self.x_cf_expanded.flatten(0,1),
+                                                self.y_expanded.flatten(0,1),
+                                                self.y_cf_expanded.flatten(0,1),
+                                                )
         if self.pi_gaussian_smoothing_sigma>0 :
             self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
 
-
+        # Upscale the pi if necessary :
         if self.upscale and not self.upscale_after_sampling :
             self.pi_logit_expanded = self.upscaler(self.pi_logit_expanded)
         else :
@@ -235,7 +197,7 @@ class PathWiseSelectorModel(BaseSelector):
         
         self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
         self.x_tilde_expanded = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded).flatten(0,1)
-        self.y_tilde_expanded = self.netf_theta(self.x_tilde_expanded)
+        self.y_tilde_expanded = self.classifier(self.x_tilde_expanded)
 
 
     def forward_val(self,):
@@ -243,7 +205,12 @@ class PathWiseSelectorModel(BaseSelector):
         """
         # Calculate the mask distribution parameter
         
-        self.pi_logit_expanded = self.netg_gamma(self.input_selector.flatten(0,1))
+        self.pi_logit_expanded = self.duplex._get_mask_param(
+                                                self.x_expanded.flatten(0,1),
+                                                self.x_cf_expanded.flatten(0,1),
+                                                self.y_expanded.flatten(0,1),
+                                                self.y_cf_expanded.flatten(0,1),
+                                            )
         if self.pi_gaussian_smoothing_sigma>0 :
             self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
 
@@ -261,47 +228,35 @@ class PathWiseSelectorModel(BaseSelector):
         self.z_expanded = self.z_expanded.reshape(self.pi_logit_expanded.shape) 
 
 
-        # Sample from the mask distribution without temperature relaxation
-        self.z_notemp_expanded = self.p_z_notemp.sample(1, self.log_pi_expanded) 
-        self.z_notemp_expanded = self.z_notemp_expanded.reshape(self.pi_logit_expanded.shape)
-        
-
         # Upscale if necessary :
         if self.upscale and self.upscale_after_sampling :
             self.z_expanded = self.upscaler(self.z_expanded)
-            self.z_notemp_expanded = self.upscaler(self.z_notemp_expanded)
             self.log_pi_expanded = self.upscaler(self.log_pi_expanded)
 
            
         if self.z_gaussian_smoothing_sigma>0 :
             self.z_expanded = gaussian_filter_2d(self.z_expanded, sigma=self.z_gaussian_smoothing_sigma)
-            self.z_notemp_expanded = gaussian_filter_2d(self.z_notemp_expanded, sigma=self.z_gaussian_smoothing_sigma)
             self.log_pi_expanded = gaussian_filter_2d(self.log_pi_expanded, sigma=self.z_gaussian_smoothing_sigma)
 
         self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
-        self.z_notemp_expanded = self.z_notemp_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         self.log_pi_expanded = self.log_pi_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi_expanded.exp() + (1 - self.log_pi_expanded.exp()) * self.x_cf_expanded)
         self.x_tilde_z = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded)
-        self.x_tilde_notemp = (self.x_expanded * self.z_notemp_expanded + (1 - self.z_notemp_expanded) * self.x_cf_expanded)
 
 
         self.z_to_save = (self.z_expanded * 2) -1
         self.pi_to_save = (self.log_pi_expanded.exp() * 2) -1
-        self.z_to_save_notemp = (self.z_notemp_expanded * 2) -1
 
  
         
         # Calculate the classifier output on the mixed images and the original images
-        self.y_tilde_z = self.netf_theta(self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
-        self.y_tilde_notemp = self.netf_theta(self.x_tilde_notemp.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
-        self.y_no_selector = self.netf_theta(self.x.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
-        self.y_tilde_pi = self.netf_theta(self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_tilde_z = self.classifier(self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_no_selector = self.classifier(self.x.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
+        self.y_tilde_pi = self.classifier(self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]))
 
         self.y_tilde_z = self.y_tilde_z.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
-        self.y_tilde_notemp = self.y_tilde_notemp.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_no_selector = self.y_no_selector.reshape(self.x.shape[0], self.opt.f_theta_output_classes)
         self.y_tilde_pi = self.y_tilde_pi.reshape(self.sample_z, self.x.shape[0], self.opt.f_theta_output_classes)
 
@@ -359,7 +314,6 @@ class PathWiseSelectorModel(BaseSelector):
 
         # Accuracy metrics
         self.loss_acc_z = (self.y_tilde_z.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
-        self.loss_acc_notemp = (self.y_tilde_notemp.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
         self.loss_acc_no_selector = (self.y_no_selector.argmax(-1) == self.y).float().reshape(self.x.shape[0])
         self.loss_acc_pi = (self.y_tilde_pi.argmax(-1) == self.y_expanded).float().reshape(self.sample_z,self.x.shape[0]).mean(0)
 
@@ -377,14 +331,6 @@ class PathWiseSelectorModel(BaseSelector):
             self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
             reduction='none')
         self.loss_class_z = self.loss_class_z.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
-        
-        
-        # Likelihood guidance but without temperature relaxation
-        self.loss_class_notemp = F.cross_entropy(
-            self.y_tilde_notemp.reshape(self.sample_z*self.x.shape[0],self.opt.f_theta_output_classes),
-            self.y_expanded.reshape(self.sample_z*self.x.shape[0]),
-            reduction='none')
-        self.loss_class_notemp = self.loss_class_notemp.reshape(self.imp_sample_z, self.mc_sample_z, self.x.shape[0]).logsumexp(0).mean(0)
 
         # Likelihood no selector
         self.loss_class_no_selector = F.cross_entropy(
@@ -406,7 +352,7 @@ class PathWiseSelectorModel(BaseSelector):
 
     def evaluate(self):
         """
-        Evaluate the model on the current batch, store and aggregate the losses.
+        Evaluate the trainer on the current batch, store and aggregate the losses.
         """
         with torch.no_grad():
             self.forward_val()
@@ -441,7 +387,7 @@ class PathWiseSelectorModel(BaseSelector):
         # forward
         self.forward()      # Compute mask and mixed images
         self.calculate_batched_loss()
-        self.set_requires_grad([self.netg_gamma,], True)
+        self.set_requires_grad([self.selector,], True)
         self.optimizer_selector.zero_grad()  # set g_gamma's gradients to zero
         self.backward_g_gamma()             # calculate gradients g_gamma
         self.optimizer_selector.step()       # update g_gamma's weights

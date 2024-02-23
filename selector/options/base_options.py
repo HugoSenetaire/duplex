@@ -2,7 +2,8 @@ import argparse
 import os
 from util import util
 import torch
-import duplex_model
+import duplex_trainer
+import attribution_model
 import data
 
 
@@ -25,8 +26,10 @@ class BaseOptions():
         parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         parser.add_argument('--checkpoints_dir', type=str, default='/nrs/funke/senetaire/checkpoints/', help='models are saved here')
         parser.add_argument('--isTrain', action='store_true', help='train or test')
-        # model parameters
-        parser.add_argument('--model', type=str, default='pathwise_selector', help='chooses which model to use. [pathwise_selector| pathwise_selector_otf | pathwise_selector_pair_dic | test]')
+
+        # trainer parameters
+        parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pair_dic', 'test'],
+                            help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pair_dic | test]')
 
         # selector parameters
         parser.add_argument('--input_nc', type=int, default=1, help='# of input image channels: 3 for RGB and 1 for grayscale')
@@ -36,10 +39,13 @@ class BaseOptions():
         parser.add_argument('--downscale_asymmetric', type=int, default=1, help='if specified and use asymmetric unet, the produced mask will be downsampled by this 2**downscale_asymmetric factor')
         parser.add_argument('--upscale_after_sampling', action='store_true', help='if specified and use asymmetric unet, the produced mask will be upsampled by this 2**downscale_asymmetric factor but after samplin\
                             otherwise pi will be upsampled by this 2**downscale_asymmetric factor, doesnt change a thing for pi_as_mask') # TODO : Implement this for later ? Not sure if really required
+        parser.add_argument('--use_counterfactual_in_selector', action='store_true', help='if specified, the counterfactual will be used in the selector')
         parser.add_argument('--norm', type=str, default='instance', help='instance normalization or batch normalization [instance | batch | none]')
         parser.add_argument('--init_type', type=str, default='normal', help='network initialization [normal | xavier | kaiming | orthogonal]')
         parser.add_argument('--init_gain', type=float, default=0.02, help='scaling factor for normal, xavier and orthogonal.')
         parser.add_argument('--no_dropout', action='store_true', help='no dropout for the generator')
+        parser.add_argument('--use_counterfactual_as_input', action='store_true', help='if specified, the counterfactual will be used as input')
+
 
         # classifier parameters
         parser.add_argument('--f_theta_checkpoint', type=str, default=None, help='Path to classifier checkpoint to restore weights from')
@@ -47,6 +53,9 @@ class BaseOptions():
         parser.add_argument('--f_theta_input_nc', type=int, default=1, help='Input channels for classifier')
         parser.add_argument('--f_theta_net', type=str, default='Vgg2D', help='Name of classifier')
         parser.add_argument('--f_theta_output_classes', type=int, default=6, help='Number of output classes for classifier')
+
+        # Mask distribution parameters
+        parser.add_argument('--mask_distribution', type=str, default='id_rbernoulli', help='Name of mask distribution to use', choices = ['id_rbernoulli'])
 
 
         # dataset parameters
@@ -61,18 +70,20 @@ class BaseOptions():
         parser.add_argument('--preprocess', type=str, default='none', help='scaling and cropping of images at load time [resize_and_crop | crop | scale_width | scale_width_and_crop | none]')
         parser.add_argument('--no_flip', action='store_false', help='if specified, do not flip the images for data augmentation')
         parser.add_argument('--display_winsize', type=int, default=256, help='display window size for both visdom and HTML')
+
+
         # additional parameters
-        parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
+        parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached trainer')
         parser.add_argument('--verbose', action='store_true', help='if specified, print more debugging information')
-        parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {model}_{net_selector}_size{load_size}')
+        parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {trainer}_{net_selector}_size{load_size}')
         self.initialized = True
         return parser
 
     def gather_options(self, input = None):
         """Initialize our parser with basic options(only once).
-        Add additional model-specific and dataset-specific options.
+        Add additional trainer-specific and dataset-specific options.
         These options are defined in the <modify_commandline_options> function
-        in model and dataset classes.
+        in trainer and dataset classes.
         """
 
         if not self.initialized:  # check if it has been initialized
@@ -83,10 +94,16 @@ class BaseOptions():
         # get the basic options
         opt, _ = parser.parse_known_args(input)
 
-        # modify model-related parser options
-        model_name = opt.model
-        model_option_setter = duplex_model.get_option_setter(model_name)
-        parser = model_option_setter(parser, self.isTrain)
+        # Modify mask distribution-related parser options
+        mask_distribution = opt.mask_distribution
+        mask_distribution_option_setter = attribution_model.get_option_setter(mask_distribution)
+        parser = mask_distribution_option_setter(parser, self.isTrain)
+        opt, _ = parser.parse_known_args(input)  # parse again with new defaults
+
+        # modify trainer-related parser options
+        trainer_name = opt.trainer
+        trainer_option_setter = duplex_trainer.get_option_setter(trainer_name)
+        parser = trainer_option_setter(parser, self.isTrain)
         opt, _ = parser.parse_known_args(input)  # parse again with new defaults
 
         # modify dataset-related parser options

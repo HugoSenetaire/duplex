@@ -20,7 +20,7 @@ See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-a
 import time
 from options.train_options import TrainOptions
 from data import create_dataset
-from duplex_model import create_model
+from duplex_trainer import create_trainer
 from util.visualizerwandb import VisualizerWandb
 import tqdm
 import torch
@@ -41,11 +41,11 @@ if __name__ == '__main__':
     print('The number of validation images = %d' % dataset_size_val)
 
     print("Creating model")
-    model = create_model(opt)      # create a model given opt.model and other options
-    print("Model created")
-    print("Setting up model")
-    model.setup(opt)               # regular setup: load and print networks; create schedulers
-    print("Model setup")
+    trainer = create_trainer(opt)      # create a trainer given opt.trainer and other options
+    print("trainer created")
+    print("Setting up trainer")
+    trainer.setup(opt)               # regular setup: load and print networks; create schedulers
+    print("trainer setup")
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
@@ -62,19 +62,19 @@ if __name__ == '__main__':
                 dic_loss_aggregate = {}
                 pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
                 for i, data in pbar:
-                    model.set_input(data)
-                    model.evaluate()
-                aggregated_losses = model.get_aggregated_losses()
+                    trainer.set_input(data)
+                    trainer.evaluate()
+                aggregated_losses = trainer.get_aggregated_losses()
                 visualizer.print_current_losses(epoch, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset_val.dataloader), aux_infos=None)
                 visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
-                visualizer.display_current_results(model.get_current_visuals(), epoch, True, total_iters)
-                model.reset_aggregated_losses()
+                visualizer.display_current_results(trainer.get_current_visuals(), epoch, True, total_iters)
+                trainer.reset_aggregated_losses()
 
                 # Visualize witness samples
                 witness_sample, witness_label= dataset_val.dataset.get_witness_sample()
-                model.set_input(witness_sample)
-                model.evaluate()
-                visualizer.witness_sample(total_iters, model.get_current_visuals(), witness_label,)
+                trainer.set_input(witness_sample)
+                trainer.evaluate()
+                visualizer.witness_sample(total_iters, trainer.get_current_visuals(), witness_label,)
 
 
         pbar_train= tqdm.tqdm(enumerate(dataset), desc='Training',)
@@ -84,39 +84,39 @@ if __name__ == '__main__':
                 t_data = iter_start_time - iter_data_time
 
             # Train
-            model.set_input(data)         # unpack data from dataset and apply preprocessing
-            model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
+            trainer.set_input(data)         # unpack data from dataset and apply preprocessing
+            trainer.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
             # Evaluate on the train dataset
             if total_iters % opt.print_freq == 0 or total_iters%opt.log_freq == 0 : # If log is required
                 with torch.no_grad():
-                    model.forward_val()
-                    model.calculate_batched_loss_val()
-                losses = model.get_current_losses()
+                    trainer.forward_val()
+                    trainer.calculate_batched_loss_val()
+                losses = trainer.get_current_losses()
                 if total_iters % opt.print_freq == 0: # Print losses to console
                     visualizer.print_current_losses(epoch, i, losses, 0, 0, total_iters, dataloader_size = len(dataset.dataloader), aux_infos=None)
                 if total_iters % opt.log_freq == 0: # Log losses to wandb
                     visualizer.log_current_losses(losses = losses, total_iter=total_iters, prefix = 'train/')
-                    visualizer.log_current_losses(model.get_aux_info(), total_iter=total_iters, prefix = 'info/')
+                    visualizer.log_current_losses(trainer.get_aux_info(), total_iter=total_iters, prefix = 'info/')
                 
-                # TODO : Empty cache here to avoid having large saved element ? Need to add some function in the model class
+                # TODO : Empty cache here to avoid having large saved element ? Need to add some function in the trainer class
                 
                 
-            if total_iters % opt.save_latest_freq == 0:   # cache our latest model every <save_latest_freq> iterations
-                print('saving the latest model (epoch %d, total_iters %d)' % (epoch, total_iters))
+            if total_iters % opt.save_latest_freq == 0:   # cache our latest trainer every <save_latest_freq> iterations
+                print('saving the latest trainer (epoch %d, total_iters %d)' % (epoch, total_iters))
                 save_suffix = 'iter_%d' % total_iters if opt.save_by_iter else 'latest'
-                model.save_networks(save_suffix)
+                trainer.save_networks(save_suffix)
                 print('saved')
 
 
             iter_data_time = time.time()
             total_iters += 1
 
-        if epoch % opt.save_epoch_freq == 0:              # cache our model every <save_epoch_freq> epochs
-            print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
-            model.save_networks('latest')
-            model.save_networks(epoch)
+        if epoch % opt.save_epoch_freq == 0:              # cache our trainer every <save_epoch_freq> epochs
+            print('saving the trainer at the end of epoch %d, iters %d' % (epoch, total_iters))
+            trainer.save_networks('latest')
+            trainer.save_networks(epoch)
             print('saved')
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs + opt.n_epochs_decay, time.time() - epoch_start_time))
-        model.update_learning_rate()                     # update learning rates at the end of every epoch.
+        trainer.update_learning_rate()                     # update learning rates at the end of every epoch.

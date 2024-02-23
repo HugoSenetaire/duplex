@@ -1,13 +1,43 @@
 import torch.nn as nn
 import torch
+from abc import ABC, abstractmethod
 
 
-class AbstractMaskDistribution(nn.Module):
+def get_mask_distribution(mask_distribution_name):
+    """
+    Create a mask distribution.
+
+    Parameters:
+        opt (argparse.Namespace): options
+
+    Returns:
+        AbstractMaskDistribution: mask distribution
+    """
+    if mask_distribution_name == "id_rbernoulli":
+        current_mask_distribution = IndependentRelaxedBernoulli
+    else:
+        raise ValueError("Mask distribution {} not recognized".format(mask_distribution_name))
+
+    return current_mask_distribution
+
+class AbstractMaskDistribution(ABC, nn.Module):
     """
     Abstract base class for mask distributions.
     """
+    @staticmethod
+    def modify_commandline_options(parser, is_train, opt=None):
+        """Add new trainer-specific options, and rewrite default values for existing options.
 
-    def __init__(self, ):
+        Parameters:
+            parser          -- original option parser
+            is_train (bool) -- whether training phase or test phase. You can use this flag to add training-specific or test-specific options.
+            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions. Used here for commandline option in attributes of trainer
+        Returns:
+            the modified parser.
+        """
+        return parser
+
+    def __init__(self, opt,):
         super(AbstractMaskDistribution, self).__init__()
         self.current_distribution = None
         self.rsample_available = False
@@ -24,6 +54,18 @@ class AbstractMaskDistribution(nn.Module):
         """
         pass
         
+    def get_attribution_score(self, g_gamma_out):
+        """
+        Get the attribution score of the mask distribution. This is defined as the expectation
+        of the mask distribution.
+
+        Parameters:
+            g_gamma_out (torch.Tensor): output of the generator. Shape (batch_size, *dim)
+
+        Returns:
+            torch.Tensor: attribution score of the mask distribution. Shape (batch_size, *dim)
+        """
+        pass
 
     def sample(self, nb_sample, g_gamma_out = None):
         """
@@ -66,12 +108,20 @@ class AbstractMaskDistribution(nn.Module):
 class IndependentRelaxedBernoulli(AbstractMaskDistribution):
     """
     Independent Relaxed Bernoulli distribution.
+    Name of the distribution: id_rbernoulli
     """
+    @staticmethod
+    def modify_commandline_options(parser, is_train, opt=None):
+        """Add new trainer-specific options, and rewrite default values for existing options.
+        """
+        parser.add_argument('--temperature_relax', type=float, default=1.0, help='temperature for the relaxed bernoulli distribution')
+        return parser
 
-    def __init__(self, temperature_relax = 0.1 ) -> None:
-        super().__init__()
+    def __init__(self, opt) -> None:
+        super().__init__(opt,)
+
         self.distribution = torch.distributions.relaxed_bernoulli.RelaxedBernoulli
-        self.temperature_relax = temperature_relax
+        self.temperature_relax = opt.temperature_relax
         self.current_distribution = None
         self.rsample_available = True
        
@@ -92,6 +142,9 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
             self.set_parameter(g_gamma_out)
         
         return self.current_distribution.rsample((nb_sample,))
+    
+    def get_attribution_score(self, g_gamma_out):
+        return g_gamma_out
 
 
 

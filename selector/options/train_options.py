@@ -42,7 +42,6 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--imp_sample_z', type=int, default=1, help='Number of Importance samples for z')
         parser.add_argument('--mc_sample_tilde_x', type=int, default=1, help='Number of MC samples for tilde_x')
         parser.add_argument('--imp_sample_tilde_x', type=int, default=1, help='Number of Importance samples for tilde_x')
-
-
+        
         self.isTrain = True
         return parser

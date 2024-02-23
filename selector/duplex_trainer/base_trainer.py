@@ -3,33 +3,35 @@ import torch
 from collections import OrderedDict
 from abc import ABC, abstractmethod
 import numpy as np
-import duplex_model.networks as networks
 import time
+from .scheduler_parameter import get_scheduler
 
-class BaseSelector(ABC):
-    """This class is an abstract base class (ABC) for models.
+
+
+class BaseTrainer(ABC):
+    """This class is an abstract base class (ABC) for trainers.
     To create a subclass, you need to implement the following five functions:
-        -- <__init__>:                      initialize the class; first call BaseSelector.__init__(self, opt).
+        -- <__init__>:                      initialize the class; first call BaseTrainer.__init__(self, opt).
         -- <set_input>:                     unpack data from dataset and apply preprocessing.
         -- <forward>:                       produce intermediate results.
         -- <calculate_losses>:              calculate losses batched losses
         -- <optimize_parameters>:           calculate gradients, and update network weights.
-        -- <modify_commandline_options>:    (optionally) add model-specific options and set default options.
+        -- <modify_commandline_options>:    (optionally) add trainer-specific options and set default options.
     """
 
     def __init__(self, opt):
-        """Initialize the BaseSelector class.
+        """Initialize the BaseTrainer class.
 
         Parameters:
             opt (Option class)-- stores all the experiment flags; needs to be a subclass of BaseOptions
 
         When creating your custom class, you need to implement your own initialization.
-        In this fucntion, you should first call <BaseSelector.__init__(self, opt)>
+        In this fucntion, you should first call <BaseTrainer.__init__(self, opt)>
         Then, you need to define four lists:
             -- self.loss_names (str list):          specify the training losses that you want to plot and save.
-            -- self.model_names (str list):         specify the images that you want to display and save.
+            -- self.trainer_names (str list):         specify the images that you want to display and save.
             -- self.visual_names (str list):        define networks used in our training.
-            -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_model.py for an example.
+            -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_trainer.py for an example.
         """
         self.opt = opt
         self.gpu_ids = opt.gpu_ids
@@ -41,7 +43,7 @@ class BaseSelector(ABC):
         if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
             torch.backends.cudnn.benchmark = True
         self.loss_names = []
-        self.model_names = []
+        self.trainer_names = []
         self.visual_names = []
         self.optimizers = []
         self.image_paths = []
@@ -50,12 +52,12 @@ class BaseSelector(ABC):
 
     @staticmethod
     def modify_commandline_options(parser, is_train, opt=None):
-        """Add new model-specific options, and rewrite default values for existing options.
+        """Add new trainer-specific options, and rewrite default values for existing options.
 
         Parameters:
             parser          -- original option parser
             is_train (bool) -- whether training phase or test phase. You can use this flag to add training-specific or test-specific options.
-            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions. Used here for commandline option in attributes of model
+            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions. Used here for commandline option in attributes of trainer
         Returns:
             the modified parser.
         """
@@ -108,14 +110,14 @@ class BaseSelector(ABC):
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         if self.isTrain:
-            self.schedulers = [networks.get_scheduler(optimizer, opt) for optimizer in self.optimizers]
+            self.schedulers = [get_scheduler(optimizer, opt) for optimizer in self.optimizers]
         if not self.isTrain or opt.continue_train:
             self.load_networks(opt.epoch)
         self.print_networks(opt.verbose)
 
     def eval(self):
-        """Make models eval mode during test time"""
-        for name in self.model_names:
+        """Make trainers eval mode during test time"""
+        for name in self.trainer_names:
             if isinstance(name, str):
                 net = getattr(self, 'net' + name)
                 net.eval()
@@ -205,18 +207,17 @@ class BaseSelector(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        for name in self.model_names:
+        for name in self.trainer_names:
             if isinstance(name, str):
                 save_filename = '%s_net_%s.pth' % (epoch, name)
                 save_path = os.path.join(self.save_dir, save_filename)
-                net = getattr(self, 'net' + name)
+                net = getattr(self, name)
 
-                if name != "AUX":
-                    if len(self.gpu_ids) > 0 and torch.cuda.is_available():
-                        torch.save(net.cpu().state_dict(), save_path)
-                        net.cuda(self.gpu_ids[0])
-                    else:
-                        torch.save(net.cpu().state_dict(), save_path)
+                if len(self.gpu_ids) > 0 and torch.cuda.is_available():
+                    torch.save(net.cpu().state_dict(), save_path)
+                    net.cuda(self.gpu_ids[0])
+                else:
+                    torch.save(net.cpu().state_dict(), save_path)
 
     def __patch_instance_norm_state_dict(self, state_dict, module, keys, i=0):
         """Fix InstanceNorm checkpoints incompatibility (prior to 0.4)"""
@@ -238,16 +239,14 @@ class BaseSelector(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        for name in self.model_names:
-            if "AUX" in name:
-                continue
+        for name in self.trainer_names:
             if isinstance(name, str):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(self.save_dir, load_filename)
-                net = getattr(self, 'net' + name)
+                net = getattr(self, name)
                 # if isinstance(net, torch.nn.DataParallel):
                     # net = net.module
-                print('loading the model from %s' % load_path)
+                print('loading the trainer from %s' % load_path)
                 # if you are using PyTorch newer than 0.4 (e.g., built from
                 # GitHub source), you can remove str() on self.device
                 state_dict = torch.load(load_path, map_location=str(self.device))
@@ -266,9 +265,9 @@ class BaseSelector(ABC):
             verbose (bool) -- if verbose: print the network architecture
         """
         print('---------- Networks initialized -------------')
-        for name in self.model_names:
+        for name in self.trainer_names:
             if isinstance(name, str):
-                net = getattr(self, 'net' + name)
+                net = getattr(self, name)
                 num_params = 0
                 if net is None:
                     continue

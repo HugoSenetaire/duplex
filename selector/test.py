@@ -1,16 +1,16 @@
-"""General-purpose training script for DupLEX models.
+"""General-purpose training script for DupLEX trainers.
 
-This script works for various models (with option '--model': e.g., pathwise) and
+This script works for various trainers (with option '--trainer': e.g., pathwise) and
 different datasets (with option '--dataset_mode': e.g., mnistduck).
-You need to specify the dataset ('--dataroot'), experiment name ('--name'), and model ('--model').
+You need to specify the dataset ('--dataroot'), experiment name ('--name'), and trainer ('--trainer').
 
-It first creates model, dataset, and visualizer given the option.
-It then does standard network training. During the training, it also visualize/save the images, print/save the loss plot, and save models.
+It first creates trainer, dataset, and visualizer given the option.
+It then does standard network training. During the training, it also visualize/save the images, print/save the loss plot, and save trainers.
 The script supports continue/resume training. Use '--continue_train' to resume your previous training.
 
 Example:
-    Train a pathwise model:
-        python train.py --dataroot /nrs/funke/senetaire/data --name duckmnist --model pathwise_selector
+    Train a pathwise trainer:
+        python train.py --dataroot /nrs/funke/senetaire/data --name duckmnist --trainer pathwise_selector
    
 
 See options/base_options.py and options/train_options.py for more training options.
@@ -20,7 +20,7 @@ See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-a
 import time
 from options.test_options import TestOptions
 from data import create_dataset
-from duplex_model import create_model
+from duplex_trainer import create_trainer
 from util.visualizerwandb import VisualizerWandb
 from util.util import tensor2im, save_image
 import tqdm
@@ -36,13 +36,13 @@ if __name__ == '__main__':
 
     print('The number of testing images = %d' % dataset_size)
 
-    print("Creating model")
-    model = create_model(opt)      # create a model given opt.model and other options
-    print("Model created")
-    print("Setting up model")
-    model.setup(opt)               # regular setup: load and print networks; create schedulers
-    model.load_networks(opt.load_epoch)
-    print("Model setup")
+    print("Creating trainer")
+    trainer = create_trainer(opt)      # create a trainer given opt.trainer and other options
+    print("trainer created")
+    print("Setting up trainer")
+    trainer.setup(opt)               # regular setup: load and print networks; create schedulers
+    trainer.load_networks(opt.load_epoch)
+    print("trainer setup")
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
@@ -84,17 +84,17 @@ if __name__ == '__main__':
         dic.update({f'real_y_cf_{j}': [] for j in range(opt.f_theta_output_classes)})
         count = 0
         for i, data in pbar:
-            model.set_input(data)
-            model.evaluate()
+            trainer.set_input(data)
+            trainer.evaluate()
             
-            for k in range(len(model.x)):
-                target = model.y[k].item()
-                x = model.x[k].unsqueeze(0).cpu()
-                x_cf = model.x_cf[k].unsqueeze(0).cpu()
-                pi = model.pi_to_save[k].unsqueeze(0).cpu()
-                y = model.y[k].unsqueeze(0).cpu()
-                y_cf = model.y_cf[k].unsqueeze(0).cpu()
-                real_y_cf = model.real_y_cf[k].unsqueeze(0).cpu()
+            for k in range(len(trainer.x)):
+                target = trainer.y[k].item()
+                x = trainer.x[k].unsqueeze(0).cpu()
+                x_cf = trainer.x_cf[k].unsqueeze(0).cpu()
+                pi = trainer.pi_to_save[k].unsqueeze(0).cpu()
+                y = trainer.y[k].unsqueeze(0).cpu()
+                y_cf = trainer.y_cf[k].unsqueeze(0).cpu()
+                real_y_cf = trainer.real_y_cf[k].unsqueeze(0).cpu()
                 dic['idx'].append(count)
                 name_x = data['x_path'][k].split('/')[-1]
                 aux_dir = os.path.join(opt.phase, idx_to_class[y.item()], idx_to_class[y_cf.item()])
@@ -135,7 +135,7 @@ if __name__ == '__main__':
         df = pd.DataFrame(dic)
         df.to_csv(os.path.join(results_dir, 'results.csv'))
 
-        aggregated_losses = model.get_aggregated_losses()
+        aggregated_losses = trainer.get_aggregated_losses()
         visualizer.print_current_losses(-1, -1, aggregated_losses, 0, 0, total_iters, prefix='val/', dataloader_size = len(dataset.dataloader), aux_infos=None)
         visualizer.log_current_losses(losses = aggregated_losses, total_iter=total_iters, prefix = 'val/')
 

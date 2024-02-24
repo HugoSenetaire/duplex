@@ -19,7 +19,7 @@ class TestOptions(BaseOptions):
         parser = BaseOptions.initialize(self, parser)  # define shared options
 
         parser.add_argument('--results_dir', type=str, default=None, help='saves results here. If none, will save to checkpoints_dir/name/results')
-        parser.add_argument('--load_epoch', type=int, default=100, help='checkpoint number to load')
+        parser.add_argument('--load_epoch', type=int, default='latest', help='checkpoint number to load')
         parser.add_argument('--phase', type=str, default='test', help='train, val, test, etc')
         # Dropout and Batchnorm has different behavioir during training and test.
         parser.add_argument('--eval', action='store_true', help='use eval mode during test time.')

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from duplex_trainer.pathwise_trainer import PathWiseTrainer
 
-class PathWiseTrainerPairDicModel(
+class PathWisePairDicTrainer(
     PathWiseTrainer,
 ):
     """

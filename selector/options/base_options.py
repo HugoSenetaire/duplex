@@ -28,8 +28,8 @@ class BaseOptions():
         parser.add_argument('--isTrain', action='store_true', help='train or test')
 
         # trainer parameters
-        parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pair_dic', 'test'],
-                            help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pair_dic | test]')
+        parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pairdic', 'test'],
+                            help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pairdic | test]')
 
         # selector parameters
         parser.add_argument('--input_nc', type=int, default=1, help='# of input image channels: 3 for RGB and 1 for grayscale')

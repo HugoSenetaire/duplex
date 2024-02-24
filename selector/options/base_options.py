@@ -27,9 +27,6 @@ class BaseOptions():
         parser.add_argument('--checkpoints_dir', type=str, default='/nrs/funke/senetaire/checkpoints/', help='models are saved here')
         parser.add_argument('--isTrain', action='store_true', help='train or test')
 
-        # trainer parameters
-        parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pairdic', 'test'],
-                            help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pairdic | test]')
 
         # selector parameters
         parser.add_argument('--input_nc', type=int, default=1, help='# of input image channels: 3 for RGB and 1 for grayscale')
@@ -73,7 +70,8 @@ class BaseOptions():
 
 
         # additional parameters
-        parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached trainer')
+        parser.add_argument('--epoch', type=str, default='latest', help='which epoch to loadthe selector, \
+                            set to latest to use latest cached trainer')
         parser.add_argument('--verbose', action='store_true', help='if specified, print more debugging information')
         parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {trainer}_{net_selector}_size{load_size}')
         self.initialized = True

@@ -11,6 +11,13 @@ class TrainOptions(BaseOptions):
 
     def initialize(self, parser):
         parser = BaseOptions.initialize(self, parser)
+
+        # trainer parameters
+        parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pairdic', 'test'],
+                            help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pairdic | test]')
+
+
+
         # visdom and HTML visualization parameters
         parser.add_argument('--display_freq', type=int, default=500, help='frequency of showing training results on screen')
         parser.add_argument('--display_ncols', type=int, default=4, help='if positive, display all images in a single visdom web panel with certain number of images per row.')

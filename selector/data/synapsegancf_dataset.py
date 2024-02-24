@@ -93,8 +93,10 @@ class SynapseGanCFDataset(BaseDataset,):
         total_cf = []
         for key in self.class_to_idx.values():
             total_cf.append(transformed[str(key)])
-        # transformed["total_cf"] = torch.stack(total_cf)
+        transformed["total_cf"] = torch.stack(total_cf)
         dic = {
+            "x_path": paths[str(target)],
+            "x_cf_path": paths,
             "x": transformed["image"],
             "y": torch.tensor(target),
             "x_cf": torch.stack(total_cf),

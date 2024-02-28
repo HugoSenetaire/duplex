@@ -3,3 +3,8 @@
 build/
 __pycache__/
 *.egg-info
+*witness*
+*savings*
+selector/*.png
+old_sh/
+new_sh/

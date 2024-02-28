@@ -37,6 +37,9 @@ class DupLEX(BaseAttribution):
         """
         Compute the DupLEX attribution using the selector and mask distribution.
         """
+        if len(real_img.shape) == 3:
+            real_img = real_img.unsqueeze(0)
+            counterfactual_img = counterfactual_img.unsqueeze(0)
         
         mask_param = self._get_mask_param(real_img, counterfactual_img, real_class, target_class,)
         attribution = self.mask_distribution.get_attribution_score(mask_param)

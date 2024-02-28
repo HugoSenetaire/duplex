@@ -73,6 +73,17 @@ class BaseTrainer(ABC):
         pass
 
     @abstractmethod
+    def set_input_fix(self, input, target_cf):
+        """Unpack input data from the dataloader and get or generate associated target cf.
+
+        Parameters:
+            input (dict): includes the data itself and its metadata information.
+            target_cf (int): target class for the counterfactual
+
+        """
+        pass
+
+    @abstractmethod
     def forward(self):
         """Run forward pass to create all variable required for training; called by both functions <optimize_parameters>."""
         pass

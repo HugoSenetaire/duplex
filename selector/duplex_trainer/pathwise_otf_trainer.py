@@ -182,3 +182,6 @@ class PathWiseOTFTrainer(PathWiseTrainer):
               same shape, but have {} and {}".format(self.x_cf_expanded.shape, self.x_expanded.shape)
         self.x_cf_expanded = self.x_cf_expanded.to(self.device)
         self.y_cf_expanded = self.y_cf_expanded.to(self.device)
+
+    def set_input_fix(self, input, target_cf):
+        raise NotImplementedError("set_input_fix is not implemented for PathWiseOTFTrainer")

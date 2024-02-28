@@ -392,3 +392,6 @@ class PathWiseTrainer(BaseTrainer):
         self.backward_g_gamma()             # calculate gradients g_gamma
         self.optimizer_selector.step()       # update g_gamma's weights
        
+
+    def set_input_fix(self, input, target_cf):
+        raise NotImplementedError("set_input_fix does not make sense for such trainer. Use set_input instead.")

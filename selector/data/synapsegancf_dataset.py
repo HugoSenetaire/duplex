@@ -56,8 +56,9 @@ class SynapseGanCFDataset(BaseDataset,):
         super().__init__(opt)
 
         source_directory = os.path.join(opt.dataroot, split)
-        paired_directory = os.path.join(opt.dataroot_counterfactual, split)
+        paired_directory = os.path.join(opt.dataroot_counterfactual, split)       
         classes, class_to_idx = find_classes(source_directory)
+        self.idx_to_class = {v: k for k, v in class_to_idx.items()}
         self.classes = classes
         self.class_to_idx = class_to_idx
         self.samples, self.samples_dic = make_dataset(source_directory, paired_directory, class_to_idx, is_valid_file=is_image_file,)

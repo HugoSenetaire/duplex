@@ -43,7 +43,6 @@ class BaseOptions():
         parser.add_argument('--init_gain', type=float, default=0.02, help='scaling factor for normal, xavier and orthogonal.')
         parser.add_argument('--no_dropout', action='store_true', help='no dropout for the generator')
         parser.add_argument('--use_counterfactual_as_input', action='store_true', help='if specified, the counterfactual will be used as input')
-
         parser.add_argument('--param_gaussian_smoothing_sigma', type=float, default=-1.0, help='if specified, \
                             the mask distribution output will be smoothed using a gaussian filter of this standard deviation')
 

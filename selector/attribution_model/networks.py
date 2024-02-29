@@ -74,7 +74,7 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     net.apply(init_func)  # apply the initialization function <init_func>
 
 
-def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
+def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[], checkpoint_path = None):
     """Initialize a network: 1. register CPU/GPU device (with multi-GPU support); 2. initialize the network weights
     Parameters:
         net (network)      -- the network to be initialized
@@ -84,11 +84,17 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
 
     Return an initialized network.
     """
+    
+    if checkpoint_path is not None:
+        net.load_state_dict(torch.load(checkpoint_path))
+    else :
+        init_weights(net, init_type, init_gain=init_gain)
+
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
         net.to(gpu_ids[0])
         net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
-    init_weights(net, init_type, init_gain=init_gain)
+    
     return net
 
 
@@ -103,13 +109,14 @@ def define_selector(
         gpu_ids=[],
         input_shape=(32,32),
         downscale_asymmetric=1,
+        checkpoint_selector = None,
         ):
     """Create a generator
 
     Parameters:
         input_nc (int) -- the number of channels in input images        
         ngf (int) -- the number of filters in the last conv layer
-        netG (str) -- the architecture's name: resnet_9blocks | resnet_6blocks | unet_256 | unet_128
+        selector (str) -- the architecture's name: resnet_9blocks | resnet_6blocks | unet_256 | unet_128 
         norm (str) -- the name of normalization layers used in the network: batch | instance | none
         use_dropout (bool) -- if use dropout layers.
         init_type (str)    -- the name of our initialization method.
@@ -118,6 +125,7 @@ def define_selector(
         downscale_asymmetric (int) -- if using asymmetric unet, how much to downscale by
                                     if 1, we will have superpizels of size2x2,
                                     if 2, we will have superpixels of size 4x4, etc.
+        checkpoint_selector (str) -- path to a checkpoint to load the selector from
 
     Returns a generator
 
@@ -156,7 +164,7 @@ def define_selector(
         net = FullyConectedGenerator(input_shape)
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % selector)
-    return init_net(net, init_type, init_gain, gpu_ids)
+    return init_net(net, init_type, init_gain, gpu_ids, checkpoint_path=checkpoint_selector)
 
 
 

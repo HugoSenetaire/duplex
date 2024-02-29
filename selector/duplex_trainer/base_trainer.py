@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import time
 from .scheduler_parameter import get_scheduler
+import pickle as pkl
 
 
 
@@ -38,8 +39,13 @@ class BaseTrainer(ABC):
         self.isTrain = opt.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name +  time.strftime("%Y%m%d-%H%M%S"))  # save all the checkpoints to save_dir
+        
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
+        # Save opt to a file :
+        with open(os.path.join(self.save_dir, 'opt.pkl'), 'wb') as f:
+            pkl.dump(opt, f)
+
         if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
             torch.backends.cudnn.benchmark = True
         self.loss_names = []

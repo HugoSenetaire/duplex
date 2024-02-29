@@ -22,8 +22,12 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from duplex_trainer import create_trainer
 from util.visualizerwandb import VisualizerWandb
+from util.util import tensor2im, save_image
 import tqdm
 import torch
+import os
+import pandas as pd
+import numpy as np
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
@@ -49,7 +53,7 @@ if __name__ == '__main__':
     visualizer = VisualizerWandb(opt)   # create a visualizer that display/save images and plots
     total_iters = 0                # the total number of training iterations
 
-
+    epoch = 0 
     for epoch in range(opt.epoch_count, opt.n_epochs + opt.n_epochs_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
@@ -120,3 +124,92 @@ if __name__ == '__main__':
 
         print('End of epoch %d / %d \t Time Taken: %d sec' % (epoch, opt.n_epochs + opt.n_epochs_decay, time.time() - epoch_start_time))
         trainer.update_learning_rate()                     # update learning rates at the end of every epoch.
+
+
+
+    idx_to_class = dataset.dataset.idx_to_class
+
+    results_dir = os.path.join(trainer.save_dir, 'results', f"test_load_epoch_{epoch}")
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
+
+    original_dir = os.path.join(results_dir, 'original')
+    if not os.path.exists(original_dir):
+        os.makedirs(original_dir)
+      
+
+    counterfactual_dir = os.path.join(results_dir, 'counterfactual')
+    if not os.path.exists(original_dir):
+        os.makedirs(original_dir)
+       
+    
+    mask_dir = os.path.join(results_dir, 'mask')
+    if not os.path.exists(mask_dir):
+        os.makedirs(mask_dir)
+      
+    
+    
+
+    with torch.no_grad():
+        # Validation every epoch
+        dic_loss_aggregate = {}
+        dataset = create_dataset(opt, split='test')  # create a dataset given opt.dataset_mode and other options
+        pbar = tqdm.tqdm(enumerate(dataset), desc='Sample element', total=int(len(dataset.dataset)/opt.batch_size))
+        
+        dic = {'idx': [], 'name': [], 'y': [], 'y_cf': [], 'pred_y_cf': [], }
+        dic.update({f'real_y_cf_{j}': [] for j in range(opt.f_theta_output_classes)})
+        count = 0
+
+        duplex = trainer.duplex
+        for i, data in pbar:
+            for key,value in dataset.dataset.idx_to_class.items():
+                time_init = time.time()
+                trainer.set_input_fix(data, key)
+                trainer.evaluate()
+
+                time_init = time.time()
+                for k in range(len(trainer.x_expanded[0])):
+                    target = trainer.y_expanded[0,k].item()
+                    x = trainer.x_expanded[0,k].unsqueeze(0).cpu()
+                    x_cf = trainer.x_cf_expanded[0,k].unsqueeze(0).cpu()
+                    pi = trainer.pi_to_save[0,k].unsqueeze(0).cpu()
+                    y = trainer.y_expanded[0,k].unsqueeze(0).cpu()
+                    y_cf = trainer.y_cf_expanded[0,k].unsqueeze(0).cpu()
+                    real_y_cf = trainer.y_tilde_pi[0,k].unsqueeze(0).cpu()
+                    dic['idx'].append(count)
+                    name_x = data['x_path'][k].split('/')[-1]
+                    aux_dir = os.path.join("test", idx_to_class[y.item()], idx_to_class[y_cf.item()])
+                    
+                    x = tensor2im(x, )
+                    x_cf = tensor2im(x_cf,)
+                    pi = tensor2im(pi, )
+
+
+                    new_dir = os.path.join(original_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(x, new_path)
+
+
+                    new_dir = os.path.join(counterfactual_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(x_cf, new_path)
+
+                    new_dir = os.path.join(mask_dir, aux_dir)
+                    if not os.path.exists(new_dir):
+                        os.makedirs(new_dir)
+                    new_path = os.path.join(new_dir, name_x)
+                    save_image(pi, new_path)
+                    new_path_numpy = new_path.replace('.png', '.npy')
+                    np.save(new_path_numpy, pi)
+
+
+                    dic['name'].append(name_x)
+                    dic['y'].append(target)
+                    dic['y_cf'].append(y_cf.item())
+                    for j in range(opt.f_theta_output_classes):
+                        dic[f'real_y_cf_{j}'].append(real_y_cf[0,j].item())
+                    count+=1

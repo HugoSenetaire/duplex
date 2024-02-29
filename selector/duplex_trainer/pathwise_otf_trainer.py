@@ -153,8 +153,8 @@ class PathWiseOTFTrainer(PathWiseTrainer):
 
         self.x = input['x'].to(self.device)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
-        self.y = input['y'].to(self.device)
-        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+
+        self.set_target()
 
         
         if not self.opt.per_sample_counterfactual:

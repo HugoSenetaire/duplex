@@ -26,6 +26,8 @@ class PathWiseTrainer(BaseTrainer):
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
 
+        parser.add_argument('--use_classifier_target', action='store_true', help='If specified, the selector is trained to predict the classifier output on the original image instead of the dataset target.')
+
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
         parser.add_argument('--lambda_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_regularization parameter. [linear | constant | cosine]')
@@ -52,6 +54,7 @@ class PathWiseTrainer(BaseTrainer):
         self.visual_names = ['x_expanded', 'x_cf_expanded', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z', ]
 
         self.use_pi_as_mask = opt.use_pi_as_mask
+        self.use_classifier_target = opt.use_classifier_target
         self.z_gaussian_smoothing_sigma = opt.z_gaussian_smoothing_sigma
 
         self.lambda_ising_regularization = opt.lambda_ising_regularization
@@ -100,6 +103,23 @@ class PathWiseTrainer(BaseTrainer):
             self.optimizer_selector = torch.optim.Adam(self.selector.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_selector)
 
+    def set_target(self,):
+        """Set the target for the selector. 
+        The target is the classifier output on the original image if use_classifier_target is specified, 
+        otherwise it is the dataset target.
+        """
+        if self.use_classifier_target:
+            with torch.no_grad():
+                self.y_expanded = torch.distributions.Categorical(probs=self.classifier(self.x_expanded.flatten(0,1)).softmax(-1)).sample()
+                self.y_expanded = self.y_expanded.reshape(self.sample_z, self.x.shape[0])
+                self.y = self.y_expanded[0]
+        else :
+            self.y = self.y_expanded[0]
+            self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+
+        
+       
+
     def set_input(self, input):
         """Unpack input data from the dataloader and perform necessary pre-processing steps.
         Notably, prepare the expanded images and labels used for the samples of mask distribution.
@@ -114,9 +134,7 @@ class PathWiseTrainer(BaseTrainer):
         self.x_path = input['x_path']
         self.x_cf_path = input['x_cf_path']
 
-        self.x = input['x'].to(self.device)
-        self.y = input['y'].to(self.device)
-
+        self.x = input['x'].to(self.device)      
         self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cf here ?
         self.y_cf = input['y_cf'].to(self.device) 
 
@@ -124,8 +142,7 @@ class PathWiseTrainer(BaseTrainer):
         self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x.shape)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
 
-        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
-        self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
+        self.set_target()
 
         self.real_y_cf = self.classifier(self.x_cf).softmax(-1).reshape(self.x_cf.shape[0], self.opt.f_theta_output_classes)
 

@@ -2,7 +2,6 @@ import torch
 import torch.nn.functional as F
 from duplex_trainer.base_trainer import BaseTrainer
 from attribution_model import initAttributionModel
-from util.gaussian_smoothing import gaussian_filter_2d
 from duplex_trainer.scheduler_lambda import get_scheduler_lambda
 
 
@@ -26,11 +25,6 @@ class PathWiseTrainer(BaseTrainer):
         parser.add_argument('--trainer_suffix', type=str, default='', help='In checkpoints_dir, [epoch]_net_G[trainer_suffix].pth will be loaded as the generator.')
         parser.add_argument('--use_pi_as_mask', action='store_true', help='If specified, the mask distribution is not sampled and we directly optimize on pi. \
                                                                         This is only possible when the imputation method is deterministic (or very simple).')
-        parser.add_argument('--pi_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the pis mask \
-                                                        is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma')
-        parser.add_argument('--z_gaussian_smoothing_sigma', type=float, default=-1.0, help='If specified, the sampled mask \
-        is smoothed with a gaussian filter of sigma gaussian_smoothing_sigma. In the case of use_pi_as_mask, it is still different \
-        from pi_gaussian_smoothing_sigma  as the smoothing happens after the upsampling.')
 
         parser.add_argument('--lambda_regularization', type=float, default=1.0, help='L1 regularization strenght to limit the selection of the mask')
         parser.add_argument('--lambda_regularization_init', type=float, default=0., help='Initial value for the lambda_regularization scheduler')
@@ -58,20 +52,12 @@ class PathWiseTrainer(BaseTrainer):
         self.visual_names = ['x_expanded', 'x_cf_expanded', 'pi_to_save', 'x_tilde_pi', 'z_to_save', 'x_tilde_z', ]
 
         self.use_pi_as_mask = opt.use_pi_as_mask
-        self.pi_gaussian_smoothing_sigma = opt.pi_gaussian_smoothing_sigma
         self.z_gaussian_smoothing_sigma = opt.z_gaussian_smoothing_sigma
+
         self.lambda_ising_regularization = opt.lambda_ising_regularization
 
 
-        # If generated mask requires upscaling
-        self.upscale = ("asymmetric" in opt.net_selector and opt.downscale_asymmetric > 0)
-        if self.upscale :
-            self.upscaler = torch.nn.Upsample(scale_factor=2**opt.downscale_asymmetric, mode='nearest')
-        self.upscale_after_sampling = opt.upscale_after_sampling
-        # check args consistency
-        # NA for Now
 
-        # specify the trainers you want to save to the disk. The training/test scripts will call <Basetrainer.save_networks> and <Basetrainer.load_networks>.
         
 
 
@@ -82,6 +68,11 @@ class PathWiseTrainer(BaseTrainer):
         self.classifier = self.duplex.classifier
         self.selector = self.duplex.selector
         self.p_z = self.duplex.mask_distribution
+
+
+        if self.use_pi_as_mask :
+            assert self.duplex.mask_distribution.allow_pi_as_mask, "The mask distribution does not allow pi as mask. Please set use_pi_as_mask to False"
+
 
         if self.isTrain:
             assert opt.lambda_regularization > 0.0, "lambda_regularization must be > 0.0"
@@ -164,36 +155,21 @@ class PathWiseTrainer(BaseTrainer):
 
     def forward(self, ):
         """Run forward pass for training; called by function <optimize_parameters>."""
-        self.pi_logit_expanded = self.duplex._get_mask_param(
+        self.mask_distribution_input = self.duplex._get_mask_param(
                                                 self.x_expanded.flatten(0,1),
                                                 self.x_cf_expanded.flatten(0,1),
                                                 self.y_expanded.flatten(0,1),
                                                 self.y_cf_expanded.flatten(0,1),
                                                 )
-        if self.pi_gaussian_smoothing_sigma>0 :
-            self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
 
-        # Upscale the pi if necessary :
-        if self.upscale and not self.upscale_after_sampling :
-            self.pi_logit_expanded = self.upscaler(self.pi_logit_expanded)
-        else :
-            self.pi_logit_expanded = self.pi_logit_expanded
 
-        self.log_pi_expanded = F.logsigmoid(self.pi_logit_expanded)
+        self.log_pi_expanded = self.duplex.mask_distribution.get_log_pi(self.mask_distribution_input)
 
         # Sample from the mask distribution
         if self.use_pi_as_mask :
             self.z_expanded = self.log_pi_expanded.exp()
-            if self.upscale and self.upscale_after_sampling :
-                self.z_expanded = self.upscaler(self.z_expanded)
         else :
             self.z_expanded = self.p_z.rsample(1, self.log_pi_expanded).reshape(self.log_pi_expanded.shape) # Need Rsample here to allow pathwise estimation
-            if self.upscale and self.upscale_after_sampling :
-                self.z_expanded = self.upscaler(self.z_expanded)
-            self.z_expanded = self.z_expanded
-
-        if self.z_gaussian_smoothing_sigma>0 :
-            self.z_expanded = gaussian_filter_2d(self.z_expanded, sigma=self.z_gaussian_smoothing_sigma)
         
         self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
         self.x_tilde_expanded = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded).flatten(0,1)
@@ -205,39 +181,18 @@ class PathWiseTrainer(BaseTrainer):
         """
         # Calculate the mask distribution parameter
         
-        self.pi_logit_expanded = self.duplex._get_mask_param(
+        self.mask_distribution_input = self.duplex._get_mask_param(
                                                 self.x_expanded.flatten(0,1),
                                                 self.x_cf_expanded.flatten(0,1),
                                                 self.y_expanded.flatten(0,1),
                                                 self.y_cf_expanded.flatten(0,1),
                                             )
-        if self.pi_gaussian_smoothing_sigma>0 :
-            self.pi_logit_expanded = gaussian_filter_2d(self.pi_logit_expanded, sigma=self.pi_gaussian_smoothing_sigma)
+        self.log_pi_expanded = self.duplex.mask_distribution.get_log_pi(self.mask_distribution_input)
 
-        # Upscale if necessary :
-        if self.upscale and not self.upscale_after_sampling :
-            self.pi_logit_expanded = self.upscaler(self.pi_logit_expanded)
-        else :
-            self.pi_logit_expanded = self.pi_logit_expanded
-
-        self.log_pi_expanded = F.logsigmoid(self.pi_logit_expanded)
         
 
         # Sample from the mask distribution with temperature relaxation
         self.z_expanded = self.p_z.rsample(1, self.log_pi_expanded) # Need Rsample here to allow pathwise estimation
-        self.z_expanded = self.z_expanded.reshape(self.pi_logit_expanded.shape) 
-
-
-        # Upscale if necessary :
-        if self.upscale and self.upscale_after_sampling :
-            self.z_expanded = self.upscaler(self.z_expanded)
-            self.log_pi_expanded = self.upscaler(self.log_pi_expanded)
-
-           
-        if self.z_gaussian_smoothing_sigma>0 :
-            self.z_expanded = gaussian_filter_2d(self.z_expanded, sigma=self.z_gaussian_smoothing_sigma)
-            self.log_pi_expanded = gaussian_filter_2d(self.log_pi_expanded, sigma=self.z_gaussian_smoothing_sigma)
-
         self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         self.log_pi_expanded = self.log_pi_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
         
@@ -245,7 +200,7 @@ class PathWiseTrainer(BaseTrainer):
         self.x_tilde_pi = (self.x_expanded * self.log_pi_expanded.exp() + (1 - self.log_pi_expanded.exp()) * self.x_cf_expanded)
         self.x_tilde_z = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded)
 
-
+        # Put the mask in the right format for visualization
         self.z_to_save = (self.z_expanded * 2) -1
         self.pi_to_save = (self.log_pi_expanded.exp() * 2) -1
 

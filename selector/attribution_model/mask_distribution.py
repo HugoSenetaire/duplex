@@ -1,6 +1,8 @@
 import torch.nn as nn
 import torch
 from abc import ABC, abstractmethod
+from util.gaussian_smoothing import gaussian_filter_2d
+
 
 
 def get_mask_distribution(mask_distribution_name):
@@ -41,6 +43,7 @@ class AbstractMaskDistribution(ABC, nn.Module):
         super(AbstractMaskDistribution, self).__init__()
         self.current_distribution = None
         self.rsample_available = False
+        self.allow_pi_as_mask = False
 
     def set_parameter(self, g_gamma_out):
         """
@@ -115,6 +118,8 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
         """Add new trainer-specific options, and rewrite default values for existing options.
         """
         parser.add_argument('--temperature_relax', type=float, default=1.0, help='temperature for the relaxed bernoulli distribution')
+        parser.add_argument('--z_gaussian_smoothing_sigma', type=float, default=-1.0, help='if specified,\
+                            the mask distribution output will be smoothed using a gaussian filter of this standard deviation')
         return parser
 
     def __init__(self, opt) -> None:
@@ -124,6 +129,8 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
         self.temperature_relax = opt.temperature_relax
         self.current_distribution = None
         self.rsample_available = True
+        self.allow_pi_as_mask = True
+        self.z_gaussian_smoothing_sigma = opt.z_gaussian_smoothing_sigma
        
     def set_parameter(self, g_gamma_out):
         """
@@ -134,17 +141,29 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
     def sample(self, nb_sample, g_gamma_out = None):
         if g_gamma_out is not None:
             self.set_parameter(g_gamma_out)
-        
-        return self.current_distribution.sample((nb_sample,))
+
+        sample_z = self.current_distribution.sample((nb_sample,))
+        if self.z_gaussian_smoothing_sigma > 0.:
+            sample_z = gaussian_filter_2d(sample_z, sigma = self.z_gaussian_smoothing_sigma)
+        return sample_z
     
     def rsample(self, nb_sample, g_gamma_out = None):
         if g_gamma_out is not None:
             self.set_parameter(g_gamma_out)
+
+        sample_z = self.current_distribution.rsample((nb_sample,))
+        if self.z_gaussian_smoothing_sigma > 0.:
+            sample_z = gaussian_filter_2d(sample_z, sigma = self.z_gaussian_smoothing_sigma)
         
-        return self.current_distribution.rsample((nb_sample,))
+        return sample_z
     
-    def get_attribution_score(self, g_gamma_out):
-        return g_gamma_out
+    def get_log_pi(self, g_gamma_out):
+        """
+        Given the mask distribution parameters, return the log probability of the mask distribution.
+        In the case of the Independent Relaxed Bernoulli, this is directly the log-simoid of the parameters.
+        """
+        log_pi = torch.nn.functional.logsigmoid(g_gamma_out)
+        return log_pi
 
 
 

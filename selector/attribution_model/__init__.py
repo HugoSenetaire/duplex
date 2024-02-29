@@ -1,5 +1,4 @@
-import importlib
-
+import torch
 
 from .networks import define_selector, get_norm_layer
 from .mask_distribution import get_mask_distribution
@@ -89,9 +88,22 @@ def initAttributionModel(opt,):
             opt.f_theta_input_shape,
             downscale_asymmetric=opt.downscale_asymmetric,
             )
-
+    
+    # If generated mask requires upscaling
+    upscale = ("asymmetric" in opt.net_selector and opt.downscale_asymmetric > 0)
+    if upscale :
+        upscaler = torch.nn.Upsample(scale_factor=2**opt.downscale_asymmetric, mode='nearest')
+    else :
+        upscaler = None
     mask_distribution = create_mask_distribution(opt)
 
-    duplex_model = DupLEX(classifier, selector, mask_distribution, opt.use_counterfactual_as_input)
+    duplex_model = DupLEX(
+                        classifier,
+                        selector,
+                        mask_distribution,
+                        upscaler=upscaler,
+                        use_counterfactual_as_input=opt.use_counterfactual_as_input,
+                        param_gaussian_smoothing_sigma=opt.param_gaussian_smoothing_sigma,
+                        )
 
     return duplex_model

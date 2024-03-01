@@ -62,6 +62,7 @@ if __name__ == '__main__':
 
         if dataset_val is not None: # Evaluation on validation dataset
             with torch.no_grad():
+                trainer.eval()
                 # Validation every epoch
                 dic_loss_aggregate = {}
                 pbar = tqdm.tqdm(enumerate(dataset_val), desc='Validation', total=int(len(dataset_val)/opt.batch_size))
@@ -83,6 +84,7 @@ if __name__ == '__main__':
 
         pbar_train= tqdm.tqdm(enumerate(dataset), desc='Training',)
         for i, data in pbar_train:  # inner loop within one epoch
+            trainer.train()
             iter_start_time = time.time()  # timer for computation per iteration
             if total_iters % opt.print_freq == 0:
                 t_data = iter_start_time - iter_data_time
@@ -94,6 +96,7 @@ if __name__ == '__main__':
             # Evaluate on the train dataset
             if total_iters % opt.print_freq == 0 or total_iters%opt.log_freq == 0 : # If log is required
                 with torch.no_grad():
+                    trainer.eval()
                     trainer.forward_val()
                     trainer.calculate_batched_loss_val()
                 losses = trainer.get_current_losses()
@@ -159,7 +162,7 @@ if __name__ == '__main__':
         dic = {'idx': [], 'name': [], 'y': [], 'y_cf': [], 'pred_y_cf': [], }
         dic.update({f'real_y_cf_{j}': [] for j in range(opt.f_theta_output_classes)})
         count = 0
-
+        trainer.eval()
         duplex = trainer.duplex
         for i, data in pbar:
             for key,value in dataset.dataset.idx_to_class.items():

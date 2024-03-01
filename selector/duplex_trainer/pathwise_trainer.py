@@ -137,6 +137,7 @@ class PathWiseTrainer(BaseTrainer):
         self.x = input['x'].to(self.device)      
         self.x_cf = input['x_cf'].to(self.device) # TODO: @hhjs Multiple cf here ?
         self.y_cf = input['y_cf'].to(self.device) 
+        self.y_cf_expanded = self.y_cf.unsqueeze(0).expand(self.sample_z, *self.y_cf.shape)
 
         # Expand the input images to match the shape of the mask samples
         self.x_cf_expanded = self.x_cf.unsqueeze(0).expand(self.sample_z, *self.x.shape)
@@ -158,7 +159,7 @@ class PathWiseTrainer(BaseTrainer):
         IMP sample: Importance sampling to reduce the bias of the likelihood estimate (see Burda et al. 2015 Importance Weighted Autoencoders)
 
         """
-        if self.selector.training and self.isTrain:
+        if not self.eval_mode:
             self.mc_sample_z = self.opt.mc_sample_z
             self.imp_sample_z = self.opt.imp_sample_z
         else:
@@ -253,7 +254,7 @@ class PathWiseTrainer(BaseTrainer):
         
         # Ising regularization :
         if self.lambda_ising_regularization > 0.0:
-            current_z = self.z.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
+            current_z = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
             self.loss_ising_regularization =  (current_z[:,:,:,1:] - current_z[:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) \
                                     + (current_z[:,:,:,:,1:] - current_z[:,:,:,:,:-1]).abs().flatten(2).mean(-1).mean(0) # This can be implemented with a convolution kernel ?
         else :

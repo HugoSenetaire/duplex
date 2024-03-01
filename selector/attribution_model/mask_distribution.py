@@ -144,7 +144,8 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
 
         sample_z = self.current_distribution.sample((nb_sample,))
         if self.z_gaussian_smoothing_sigma > 0.:
-            sample_z = gaussian_filter_2d(sample_z, sigma = self.z_gaussian_smoothing_sigma)
+            sample_z = gaussian_filter_2d(sample_z.flatten(0,1), sigma = self.z_gaussian_smoothing_sigma)
+        sample_z = sample_z.reshape(nb_sample, *g_gamma_out.shape)
         return sample_z
     
     def rsample(self, nb_sample, g_gamma_out = None):
@@ -153,8 +154,8 @@ class IndependentRelaxedBernoulli(AbstractMaskDistribution):
 
         sample_z = self.current_distribution.rsample((nb_sample,))
         if self.z_gaussian_smoothing_sigma > 0.:
-            sample_z = gaussian_filter_2d(sample_z, sigma = self.z_gaussian_smoothing_sigma)
-        
+            sample_z = gaussian_filter_2d(sample_z.flatten(0,1), sigma = self.z_gaussian_smoothing_sigma)
+        sample_z = sample_z.reshape(nb_sample, *g_gamma_out.shape)
         return sample_z
     
     def get_log_pi(self, g_gamma_out):

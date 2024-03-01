@@ -39,7 +39,7 @@ class BaseTrainer(ABC):
         self.isTrain = opt.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
         self.save_dir = os.path.join(opt.checkpoints_dir, opt.name +  time.strftime("%Y%m%d-%H%M%S"))  # save all the checkpoints to save_dir
-        
+        self.eval_mode = True
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
         # Save opt to a file :
@@ -134,11 +134,23 @@ class BaseTrainer(ABC):
 
     def eval(self):
         """Make trainers eval mode during test time"""
+        # for module in self.modules():
+            # module.eval()
+        self.eval_mode = True
         for name in self.trainer_names:
             if isinstance(name, str):
-                net = getattr(self, 'net' + name)
+                net = getattr(self, name)
                 net.eval()
 
+    def train(self):
+        """Make trainers train mode during train time"""
+        # for module in self.modules():
+            # module.train()
+        self.eval_model = False
+        for name in self.trainer_names:
+            if isinstance(name, str):
+                net = getattr(self, name)
+                net.train()
 
 
     def update_learning_rate(self):

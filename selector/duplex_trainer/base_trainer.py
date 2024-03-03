@@ -30,7 +30,7 @@ class BaseTrainer(ABC):
         In this fucntion, you should first call <BaseTrainer.__init__(self, opt)>
         Then, you need to define four lists:
             -- self.loss_names (str list):          specify the training losses that you want to plot and save.
-            -- self.trainer_names (str list):         specify the images that you want to display and save.
+            -- self.model_names (str list):         specify the images that you want to display and save.
             -- self.visual_names (str list):        define networks used in our training.
             -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_trainer.py for an example.
         """
@@ -49,7 +49,7 @@ class BaseTrainer(ABC):
         if opt.preprocess != 'scale_width':  # with [scale_width], input images might have different sizes, which hurts the performance of cudnn.benchmark.
             torch.backends.cudnn.benchmark = True
         self.loss_names = []
-        self.trainer_names = []
+        self.model_names = []
         self.visual_names = []
         self.optimizers = []
         self.image_paths = []
@@ -137,7 +137,7 @@ class BaseTrainer(ABC):
         # for module in self.modules():
             # module.eval()
         self.eval_mode = True
-        for name in self.trainer_names:
+        for name in self.model_names:
             if isinstance(name, str):
                 net = getattr(self, name)
                 net.eval()
@@ -147,7 +147,7 @@ class BaseTrainer(ABC):
         # for module in self.modules():
             # module.train()
         self.eval_model = False
-        for name in self.trainer_names:
+        for name in self.model_names:
             if isinstance(name, str):
                 net = getattr(self, name)
                 net.train()
@@ -236,7 +236,7 @@ class BaseTrainer(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        for name in self.trainer_names:
+        for name in self.model_names:
             if isinstance(name, str):
                 save_filename = '%s_net_%s.pth' % (epoch, name)
                 save_path = os.path.join(self.save_dir, save_filename)
@@ -268,7 +268,7 @@ class BaseTrainer(ABC):
         Parameters:
             epoch (int) -- current epoch; used in the file name '%s_net_%s.pth' % (epoch, name)
         """
-        for name in self.trainer_names:
+        for name in self.model_names:
             if isinstance(name, str):
                 load_filename = '%s_net_%s.pth' % (epoch, name)
                 load_path = os.path.join(self.save_dir, load_filename)
@@ -294,7 +294,7 @@ class BaseTrainer(ABC):
             verbose (bool) -- if verbose: print the network architecture
         """
         print('---------- Networks initialized -------------')
-        for name in self.trainer_names:
+        for name in self.model_names:
             if isinstance(name, str):
                 net = getattr(self, name)
                 num_params = 0

@@ -67,7 +67,7 @@ class PathWiseTrainer(BaseTrainer):
         # define networks (both selectors and classifiers)
         print("Setting Duplex")
         self.duplex = initAttributionModel(opt)
-        self.trainer_names = ['selector']
+        self.model_names = ['selector']
         self.classifier = self.duplex.classifier
         self.selector = self.duplex.selector
         self.p_z = self.duplex.mask_distribution

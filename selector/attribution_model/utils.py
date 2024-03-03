@@ -59,7 +59,8 @@ def initAttributionModel(opt, checkpoint_selector=None,):
             opt.f_theta_net,
             opt.f_theta_input_nc,
             opt.f_theta_output_classes,
-            downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)]
+            downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)],
+            script_file=opt.f_theta_script_file,
             )
 
     if opt.use_counterfactual_as_input:

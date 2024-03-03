@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from selector.duplex_trainer.pathwise_trainer import PathWiseTrainer
+from duplex_trainer.pathwise_trainer import PathWiseTrainer
 from starganv2.inference.model import LatentInferenceModel
 import numpy as np 
 
@@ -23,7 +23,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
             the modified parser.
         """
         parser.add_argument('--latent_model_checkpoint_dir', type=str, required=True, help='path to the latent model checkpoint')
-        parser.add_argument('--load_iter_latent_mdodel', type=int, default=10000)
+        parser.add_argument('--load_iter_latent_model', type=int, default=10000)
         parser.add_argument('--style_dim_latent_model', type=int, default=64)
         parser.add_argument('--latent_dim_latent_model', type=int, default=16)
 
@@ -54,7 +54,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
         style_dim = opt.style_dim_latent_model
         latent_dim = opt.latent_dim_latent_model
         num_domains = opt.f_theta_output_classes
-        checkpoint_iter = opt.load_iter_latent_mdodel
+        checkpoint_iter = opt.load_iter_latent_model
 
         self.latent_inference_model = LatentInferenceModel(
             checkpoint_dir=opt.latent_model_checkpoint_dir,

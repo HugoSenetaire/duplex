@@ -95,10 +95,12 @@ class PathWisePairDicTrainer(
         self.x = input['x'].to(self.device)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
 
-        self.set_target()
       
         self.x_cf_expanded = input['x_cf'].to(self.device).unsqueeze(0).expand(self.sample_z, *input['x_cf'].shape)
 
+        self.y = input['y'].to(self.device)
+        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+        self.set_target()
 
         self.y_cf_expanded = torch.full_like(self.y_expanded, target_cf)
         self.index_select = self.y_cf_expanded.reshape(
@@ -119,6 +121,8 @@ class PathWisePairDicTrainer(
         self.x_cf_expanded = self.x_cf_expanded.reshape(self.sample_z, *self.x.shape)
         self.x_cf = self.x_cf_expanded[0] # We will use the first counterfactual for visualization
         self.y_cf = self.y_cf_expanded[0] # We will use the first counterfactual for visualization
+
+
             
         assert self.x_cf_expanded.shape == self.x_expanded.shape, "x_cf_expanded and x_expanded should have the\
               same shape, but have {} and {}".format(self.x_cf_expanded.shape, self.x_expanded.shape)

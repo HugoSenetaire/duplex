@@ -83,14 +83,14 @@ class SynapseNoCFDataset(BaseDataset,):
         )
 
 
-    def __make_dict(self, x, xcf, y, ycf):
+    def __make_dict(self, x, xcf, y, ycf, x_path = "None",):
         return {
             "x": x,
             "x_cf": xcf,
             "y": y,
             "y_cf": ycf,
-            # "x_path": None,
-            # "xcf_path": None
+            "x_path": x_path,
+            "x_cf_path": "None",
         }
 
     def __len__(self):
@@ -105,4 +105,4 @@ class SynapseNoCFDataset(BaseDataset,):
         # target = np.random.choice([i for i in range(1, 6) if i != y])
         target = torch.full_like(y, -1)
         x_cf = torch.full_like(x, -1)
-        return self.__make_dict(x, x_cf, y, target)
+        return self.__make_dict(x, x_cf, y, target, x_path=path)

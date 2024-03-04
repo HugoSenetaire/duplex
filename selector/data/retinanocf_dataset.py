@@ -79,16 +79,17 @@ class RetinaNoCFDataset(BaseDataset,):
             root=root,
             transform=None,
         )
+        print(np.array(self.dataset.__getitem__(0)[0]).shape)
 
 
-    def __make_dict(self, x, xcf, y, ycf):
+    def __make_dict(self, x, xcf, y, ycf, x_path):
         return {
             "x": x,
             "x_cf": xcf,
             "y": y,
             "y_cf": ycf,
-            # "x_path": None,
-            # "xcf_path": None
+            "x_path": x_path,
+            "xcf_path": "none",
         }
 
     def __len__(self):
@@ -97,10 +98,10 @@ class RetinaNoCFDataset(BaseDataset,):
     def __getitem__(self, index):
         self.dataset.__getitem__(index)
         x, y, path = self.dataset.__getitem__(index)
-        x = np.array(x, dtype=np.float32)[..., 0] # It's a grayscale image, so we only need one channel
-        x = self.transform(image=x)["image"]/255 *2 -1 # Normalize to [-1, 1]
+        # x = np.array(x, dtype=np.float32)[..., 0] # It's a grayscale image, so we only need one channel
+        # x = self.transform(image=x)["image"]/255 *2 -1 # Normalize to [-1, 1]
         y = torch.tensor(y, dtype=torch.long)
         # target = np.random.choice([i for i in range(1, 6) if i != y])
         target = torch.full_like(y, -1)
         x_cf = torch.full_like(x, -1)
-        return self.__make_dict(x, x_cf, y, target)
+        return self.__make_dict(x, x_cf, y, target, path)

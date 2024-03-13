@@ -132,7 +132,7 @@ if __name__ == '__main__':
 
     idx_to_class = dataset.dataset.idx_to_class
 
-    results_dir = os.path.join(trainer.save_dir, 'results', f"test_load_epoch_{epoch}")
+    results_dir = os.path.join(trainer.save_dir, 'results', f"test_load_epoch_latest")
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
 
@@ -163,6 +163,7 @@ if __name__ == '__main__':
         dic.update({f'real_y_cf_{j}': [] for j in range(opt.f_theta_output_classes)})
         count = 0
         trainer.eval()
+        trainer.load_networks("latest")
         duplex = trainer.duplex
         for i, data in pbar:
             for key,value in dataset.dataset.idx_to_class.items():

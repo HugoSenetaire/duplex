@@ -38,7 +38,10 @@ class BaseTrainer(ABC):
         self.gpu_ids = opt.gpu_ids
         self.isTrain = opt.isTrain
         self.device = torch.device('cuda:{}'.format(self.gpu_ids[0])) if self.gpu_ids else torch.device('cpu')  # get device name: CPU or GPU
-        self.save_dir = os.path.join(opt.checkpoints_dir, opt.name +  time.strftime("%Y%m%d-%H%M%S"))  # save all the checkpoints to save_dir
+        if not opt.add_date_to_name:
+            self.save_dir = os.path.join(opt.checkpoints_dir, opt.name)
+        else :
+            self.save_dir = os.path.join(opt.checkpoints_dir, opt.name +  time.strftime("%Y%m%d-%H%M%S"))  # save all the checkpoints to save_dir
         self.eval_mode = True
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)

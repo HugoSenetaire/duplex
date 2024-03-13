@@ -23,7 +23,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
             the modified parser.
         """
         parser.add_argument('--latent_model_checkpoint_dir', type=str, required=True, help='path to the latent model checkpoint')
-        parser.add_argument('--load_iter_latent_model', type=int, default=10000)
+        parser.add_argument('--load_iter_latent_model', type=int, default=100000)
         parser.add_argument('--style_dim_latent_model', type=int, default=64)
         parser.add_argument('--latent_dim_latent_model', type=int, default=16)
 
@@ -51,6 +51,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
 
         self.counterfactual_mode = opt.counterfactual_mode
         img_size = opt.f_theta_input_shape[0]
+        input_dim = opt.f_theta_input_nc
         style_dim = opt.style_dim_latent_model
         latent_dim = opt.latent_dim_latent_model
         num_domains = opt.f_theta_output_classes
@@ -63,6 +64,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
             latent_dim=latent_dim,
             num_domains=num_domains,
             w_hpf=0.0,
+            input_dim=input_dim,
         )
         self.latent_inference_model.load_checkpoint(checkpoint_iter)
         self.latent_inference_model.to(self.device)
@@ -95,7 +97,6 @@ class PathWiseOTFTrainer(PathWiseTrainer):
         elif self.counterfactual_mode == 'best':
             x_multiple = x.unsqueeze(0).expand(self.batch_size_counterfactual_generation, *x.shape).flatten(0,1)
             target_multiple = target.unsqueeze(0).expand(self.batch_size_counterfactual_generation, *target.shape).flatten(0,1)
-
             # Generate batch_size_counterfactual_generation counterfactuals
             xcf = self.latent_inference_model(
                 x_multiple.to(self.device),
@@ -106,6 +107,7 @@ class PathWiseOTFTrainer(PathWiseTrainer):
             p = self.classifier(xcf).softmax(-1).reshape(self.batch_size_counterfactual_generation, x.shape[0], self.opt.f_theta_output_classes)
             xcf = xcf.reshape(self.batch_size_counterfactual_generation, x.shape[0], *x.shape[1:])
             target_one_hot = F.one_hot(target, self.opt.f_theta_output_classes).unsqueeze(0).expand(self.batch_size_counterfactual_generation, target.shape[0], self.opt.f_theta_output_classes)        
+            target_one_hot = target_one_hot.to(xcf.device)
             indices = torch.argmin((p - target_one_hot).abs().sum(-1), dim=0)
             indices_xcf = indices.reshape(1, x.shape[0], *[1 for _ in range(xcf.dim()-2)]).expand(1, x.shape[0], *xcf.shape[2:])
             indices_p = indices.reshape(1, x.shape[0], *[1 for _ in range(p.dim()-2)]).expand(1, x.shape[0], *p.shape[2:])
@@ -153,7 +155,8 @@ class PathWiseOTFTrainer(PathWiseTrainer):
 
         self.x = input['x'].to(self.device)
         self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
-
+        self.y_expanded = input['y'].unsqueeze(0).expand(self.sample_z, *input['y'].shape)
+        self.y = input['y'].to(self.device)
         self.set_target()
 
         
@@ -184,4 +187,44 @@ class PathWiseOTFTrainer(PathWiseTrainer):
         self.y_cf_expanded = self.y_cf_expanded.to(self.device)
 
     def set_input_fix(self, input, target_cf):
-        raise NotImplementedError("set_input_fix is not implemented for PathWiseOTFTrainer")
+        """Unpack input data from the dataloader and do
+        counterfactual generation using the latent inference model. 
+        
+        If the option --per_sample_counterfactual is specified,
+        it will generate counterfactuals per sample of z,
+        otherwise it will generate counterfactuals per samples of x.
+        
+        Parameters:
+            input: a dictionary that contains the data itself and its metadata information.
+        """
+        self.mc_sample_z = 1
+        self.imp_sample_z = 1
+        self.sample_z = 1
+
+        self.x_path = input['x_path']
+        self.x_cf_path = input['x_cf_path']
+
+        self.x = input['x'].to(self.device)
+        self.x_expanded = self.x.unsqueeze(0).expand(self.sample_z, *self.x.shape)
+
+      
+        self.x_cf_expanded = input['x_cf'].to(self.device).unsqueeze(0).expand(self.sample_z, *input['x_cf'].shape)
+
+        self.y = input['y'].to(self.device)
+        self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+        self.set_target()
+
+        self.y_cf_expanded = torch.full_like(self.y_expanded, target_cf)
+        self.x_cf_expanded, self.real_y_cf_expanded = self.get_counterfactual(self.x_expanded, self.y_cf_expanded)
+        
+        self.x_cf = self.x_cf_expanded[0] # We will use the first counterfactual for visualization
+        self.y_cf = self.y_cf_expanded[0] # We will use the first counterfactual for visualization
+
+
+            
+        assert self.x_cf_expanded.shape == self.x_expanded.shape, "x_cf_expanded and x_expanded should have the\
+              same shape, but have {} and {}".format(self.x_cf_expanded.shape, self.x_expanded.shape)
+        self.x_cf_expanded = self.x_cf_expanded.to(self.device)
+        self.y_cf_expanded = self.y_cf_expanded.to(self.device)
+
+

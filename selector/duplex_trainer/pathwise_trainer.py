@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from duplex_trainer.base_trainer import BaseTrainer
 from attribution_model import initAttributionModel
 from duplex_trainer.scheduler_lambda import get_scheduler_lambda
+import torch.nn as nn 
 
 
 class PathWiseTrainer(BaseTrainer):
@@ -60,10 +61,6 @@ class PathWiseTrainer(BaseTrainer):
         self.lambda_ising_regularization = opt.lambda_ising_regularization
 
 
-
-        
-
-
         # define networks (both selectors and classifiers)
         print("Setting Duplex")
         self.duplex = initAttributionModel(opt)
@@ -116,6 +113,9 @@ class PathWiseTrainer(BaseTrainer):
         else :
             self.y = self.y_expanded[0]
             self.y_expanded = self.y.unsqueeze(0).expand(self.sample_z, *self.y.shape)
+
+        self.y = self.y.to(self.device)
+        self.y_expanded = self.y_expanded.to(self.device)
 
         
        

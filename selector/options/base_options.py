@@ -54,6 +54,8 @@ class BaseOptions():
         parser.add_argument('--f_theta_net', type=str, default='Vgg2D', help='Name of classifier')
         parser.add_argument('--f_theta_output_classes', type=int, default=6, help='Number of output classes for classifier')
         parser.add_argument('--f_theta_script_file', action='store_true', help='if specified, the classifier will be loaded as a torchscript model')
+        parser.add_argument('--f_theta_resnet_renormalization', action='store_true', help='if specified, renormalize the latent space by using the resnet pretained renormalization')
+
 
         # Mask distribution parameters
         parser.add_argument('--mask_distribution', type=str, default='id_rbernoulli', help='Name of mask distribution to use', choices = ['id_rbernoulli'])

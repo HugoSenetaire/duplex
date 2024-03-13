@@ -42,17 +42,32 @@ def create_mask_distribution(opt):
     print("mask_distribution [%s] was created" % type(instance).__name__)
     return instance
 
+class ResnetRenormalizationModule(torch.nn.Module):
+    def __init__(self,):
+        super(ResnetRenormalizationModule, self).__init__()
+        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+
+    def forward(self, x):
+        x = (x +1)/2.*255.
+        return (x - self.mean) / self.std
+
+
 
 def initAttributionModel(opt, checkpoint_selector=None,):
     """Create a duplex model given the option.
 
-    This function warps the class CustomDatasetDataLoader.
-    This is the main interface between this package and 'train.py'/'test.py'
 
     Example:
         >>> from duplex_model import initAttributionModel
         >>> duplex_model = initAttributionModel(opt)
     """
+    
+    if opt.f_theta_resnet_renormalization:
+        renormalization_module = ResnetRenormalizationModule()
+    else :
+        renormalization_module = None
+
     classifier = init_network(
             opt.f_theta_checkpoint,
             opt.f_theta_input_shape,
@@ -79,6 +94,7 @@ def initAttributionModel(opt, checkpoint_selector=None,):
             downscale_asymmetric=opt.downscale_asymmetric,
             checkpoint_selector=checkpoint_selector,
             )
+
     
     # If generated mask requires upscaling
     upscale = ("asymmetric" in opt.net_selector and opt.downscale_asymmetric > 0)
@@ -93,12 +109,12 @@ def initAttributionModel(opt, checkpoint_selector=None,):
                         selector,
                         mask_distribution,
                         upscaler=upscaler,
+                        renormalization_module=renormalization_module,
                         use_counterfactual_as_input=opt.use_counterfactual_as_input,
                         param_gaussian_smoothing_sigma=opt.param_gaussian_smoothing_sigma,
                         )
 
     return duplex_model
-
 def getAttributionModel(opt_path, checkpoint_path):
     """
     Create a duplex model using options saved at a given path and a given checkpoint.

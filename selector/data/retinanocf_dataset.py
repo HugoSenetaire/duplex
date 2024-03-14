@@ -93,7 +93,7 @@ class RetinaNoCFDataset(BaseDataset,):
             transform=None,
         )
 
-        self.idx_to_class = {k: k for k in self.dataset.classes}
+        self.idx_to_class = {int(k): k for k in self.dataset.classes}
 
 
     def __make_dict(self, x, xcf, y, ycf, x_path = "None",):

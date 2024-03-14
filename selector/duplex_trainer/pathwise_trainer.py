@@ -65,9 +65,9 @@ class PathWiseTrainer(BaseTrainer):
         print("Setting Duplex")
         self.duplex = initAttributionModel(opt)
         self.model_names = ['selector']
-        self.classifier = self.duplex.classifier
-        self.selector = self.duplex.selector
-        self.p_z = self.duplex.mask_distribution
+        self.classifier = self.duplex.classifier.to(self.device)
+        self.selector = self.duplex.selector.to(self.device)
+        self.p_z = self.duplex.mask_distribution.to(self.device)
 
 
         if self.use_pi_as_mask :

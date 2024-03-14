@@ -49,8 +49,9 @@ class ResnetRenormalizationModule(torch.nn.Module):
         self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
     def forward(self, x):
-        x = (x +1)/2.*255.
-        return (x - self.mean) / self.std
+        x = (x + 1)/2.
+        x = (x - self.mean) / self.std
+        return x
 
 
 
@@ -113,7 +114,6 @@ def initAttributionModel(opt, checkpoint_selector=None,):
                         use_counterfactual_as_input=opt.use_counterfactual_as_input,
                         param_gaussian_smoothing_sigma=opt.param_gaussian_smoothing_sigma,
                         )
-
     return duplex_model
 def getAttributionModel(opt_path, checkpoint_path):
     """

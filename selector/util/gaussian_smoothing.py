@@ -21,6 +21,10 @@ def gaussian_filter_2d(img: torch.Tensor, sigma: float) -> torch.Tensor:
     padding = len(kernel_1d) // 2  # Ensure that image size does not change
     # img = img.unsqueeze(0).unsqueeze_(0)  # Need 4D data for ``conv2d()``
     # Convolve along columns and rows
+    batch_size, num_channels, height, width = img.shape
+    img = img.flatten(0, 1).unsqueeze(1) # Should allow accross channel
+    
     img = conv2d(img, weight=kernel_1d.view(1, 1, -1, 1), padding=(padding, 0))
     img = conv2d(img, weight=kernel_1d.view(1, 1, 1, -1), padding=(0, padding))
+    img = img.reshape(batch_size, num_channels, height, width)
     return img # Make 2D again

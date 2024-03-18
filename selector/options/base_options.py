@@ -45,7 +45,10 @@ class BaseOptions():
         parser.add_argument('--no_dropout', action='store_true', help='no dropout for the generator')
         parser.add_argument('--use_counterfactual_as_input', action='store_true', help='if specified, the counterfactual will be used as input')
         parser.add_argument('--param_gaussian_smoothing_sigma', type=float, default=-1.0, help='if specified, \
-                            the mask distribution output will be smoothed using a gaussian filter of this standard deviation')
+                            the mask distribution output will be smoothed using a gaussian filter of this standard deviation \
+                            Not to be mixed up with the x_tilde gaussian smoothing, where the mixed image is smoothed using a gaussian filter of this standard deviation')
+        parser.add_argument('--x_tilde_gaussian_smoothing_sigma', type=float, default=-1.0, help='if specified, \
+                            the mix image will be smoothed using a gaussian filter of this standard deviation')
 
 
         # classifier parameters

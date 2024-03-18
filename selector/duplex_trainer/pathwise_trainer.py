@@ -4,6 +4,7 @@ from duplex_trainer.base_trainer import BaseTrainer
 from attribution_model import initAttributionModel
 from duplex_trainer.scheduler_lambda import get_scheduler_lambda
 import torch.nn as nn 
+from util.gaussian_smoothing import gaussian_filter_2d
 
 
 class PathWiseTrainer(BaseTrainer):
@@ -57,6 +58,7 @@ class PathWiseTrainer(BaseTrainer):
         self.use_pi_as_mask = opt.use_pi_as_mask
         self.use_classifier_target = opt.use_classifier_target
         self.z_gaussian_smoothing_sigma = opt.z_gaussian_smoothing_sigma
+        self.x_tilde_gaussian_smoothing_sigma = opt.x_tilde_gaussian_smoothing_sigma
 
         self.lambda_ising_regularization = opt.lambda_ising_regularization
 
@@ -190,8 +192,17 @@ class PathWiseTrainer(BaseTrainer):
             self.z_expanded = self.p_z.rsample(1, self.log_pi_expanded).reshape(self.log_pi_expanded.shape) # Need Rsample here to allow pathwise estimation
         
         self.z_expanded = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:]) 
-        self.x_tilde_expanded = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded).flatten(0,1)
+        self.x_tilde_expanded = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded)
+        if self.x_tilde_gaussian_smoothing_sigma > 0.: 
+            self.x_tilde_expanded = gaussian_filter_2d(
+                self.x_tilde_expanded.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]),
+                sigma = self.x_tilde_gaussian_smoothing_sigma,
+                )
+        
+        self.x_tilde_expanded = self.x_tilde_expanded.reshape(self.sample_z * self.x.shape[0], *self.x.shape[1:])
         self.y_tilde_expanded = self.classifier(self.x_tilde_expanded)
+        self.x_tilde_expanded = self.x_tilde_expanded.reshape(self.sample_z, *self.x.shape)
+
 
 
     def forward_val(self,):
@@ -217,6 +228,18 @@ class PathWiseTrainer(BaseTrainer):
         # Create mixed images
         self.x_tilde_pi = (self.x_expanded * self.log_pi_expanded.exp() + (1 - self.log_pi_expanded.exp()) * self.x_cf_expanded)
         self.x_tilde_z = (self.x_expanded * self.z_expanded + (1 - self.z_expanded) * self.x_cf_expanded)
+
+        if self.x_tilde_gaussian_smoothing_sigma > 0.:
+            self.x_tilde_pi = gaussian_filter_2d(
+                self.x_tilde_pi.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]),
+                sigma = self.x_tilde_gaussian_smoothing_sigma,
+                ).reshape(self.sample_z, *self.x.shape)
+            self.x_tilde_z = gaussian_filter_2d(
+                self.x_tilde_z.reshape(self.sample_z*self.x.shape[0], *self.x.shape[1:]),
+                sigma = self.x_tilde_gaussian_smoothing_sigma,
+                ).reshape(self.sample_z, *self.x.shape)
+            
+
 
         # Put the mask in the right format for visualization
         self.z_to_save = (self.z_expanded * 2) -1

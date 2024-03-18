@@ -16,6 +16,9 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--trainer', type=str, default='pathwise', choices = ['pathwise', 'pathwise_otf', 'pathwise_pairdic', 'test'],
                             help='chooses which trainer to use. [pathwise| pathwise_otf | pathwise_pairdic | test]')
 
+        parser.add_argument('--n_epochs_pretrain_deeplift', type=int, default=0, help='Number of epochs to pretrain the deeplift model')
+
+
 
 
         # visdom and HTML visualization parameters

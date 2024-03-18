@@ -114,7 +114,7 @@ class BaseTrainer(ABC):
         pass
 
     @abstractmethod
-    def optimize_parameters(self):
+    def optimize_parameters(self, use_deeplift=False):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         pass
 

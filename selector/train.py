@@ -54,7 +54,7 @@ if __name__ == '__main__':
     total_iters = 0                # the total number of training iterations
 
     epoch = 0 
-    for epoch in range(opt.epoch_count, opt.n_epochs + opt.n_epochs_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
+    for epoch in range(opt.epoch_count, opt.n_epochs_pretrain_deeplift + opt.n_epochs + opt.n_epochs_decay + 1):    # outer loop for different epochs; we save the model by <epoch_count>, <epoch_count>+<save_latest_freq>
         epoch_start_time = time.time()  # timer for entire epoch
         iter_data_time = time.time()    # timer for data loading per iteration
         visualizer.reset()              # reset the visualizer: make sure it saves the results to HTML at least once every epoch
@@ -91,7 +91,7 @@ if __name__ == '__main__':
 
             # Train
             trainer.set_input(data)         # unpack data from dataset and apply preprocessing
-            trainer.optimize_parameters()   # calculate loss functions, get gradients, update network weights
+            trainer.optimize_parameters(use_deeplift=epoch<opt.n_epochs_pretrain_deeplift)   # calculate loss functions, get gradients, update network weights
 
             # Evaluate on the train dataset
             if total_iters % opt.print_freq == 0 or total_iters%opt.log_freq == 0 : # If log is required

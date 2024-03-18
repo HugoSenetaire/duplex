@@ -5,6 +5,7 @@ from attribution_model import initAttributionModel
 from duplex_trainer.scheduler_lambda import get_scheduler_lambda
 import torch.nn as nn 
 from util.gaussian_smoothing import gaussian_filter_2d
+from captum.attr import DeepLift
 
 
 class PathWiseTrainer(BaseTrainer):
@@ -39,7 +40,7 @@ class PathWiseTrainer(BaseTrainer):
         parser.add_argument('--lambda_ising_regularization_init', type=float, default=0., help='Initial value for the lambda_ising_regularization scheduler')
         parser.add_argument('--lambda_ising_regularization_scheduler', type=str, default='constant', help='Scheduler for the lambda_ising_regularization parameter. [linear | constant | cosine]')
         parser.add_argument('--lambda_ising_regularization_scheduler_targetepoch', type=int, default=10, help='Target epoch for the lambda_ising_regularization scheduler to reach the lambda_ising_regularization value')
-        
+
         return parser
 
     def __init__(self, opt):
@@ -173,7 +174,7 @@ class PathWiseTrainer(BaseTrainer):
 
 
 
-    def forward(self, ):
+    def forward(self, use_deeplift = False,):
         """Run forward pass for training; called by function <optimize_parameters>."""
         self.mask_distribution_input = self.duplex._get_mask_param(
                                                 self.x_expanded.flatten(0,1),
@@ -203,6 +204,18 @@ class PathWiseTrainer(BaseTrainer):
         self.y_tilde_expanded = self.classifier(self.x_tilde_expanded)
         self.x_tilde_expanded = self.x_tilde_expanded.reshape(self.sample_z, *self.x.shape)
 
+
+        if use_deeplift :
+            self.classifier.zero_grad()
+            dl = DeepLift(self.classifier)
+
+            self.z_deep_lift = dl.attribute(
+                                self.x_expanded.reshape(self.sample_z * self.x.shape[0], *self.x.shape[1:]),
+                                baselines=self.x_tilde_expanded.reshape(self.sample_z * self.x.shape[0], *self.x.shape[1:]),
+                                target=self.y_expanded.reshape(self.sample_z * self.x.shape[0],),
+                                )
+            self.z_deep_lift = torch.where(self.z_deep_lift > 0, self.z_deep_lift, torch.zeros_like(self.z_deep_lift)) # Only keep positive attributions
+            self.z_deep_lift = torch.max(self.z_deep_lift, dim=1).values.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
 
 
     def forward_val(self,):
@@ -259,7 +272,7 @@ class PathWiseTrainer(BaseTrainer):
 
 
 
-    def calculate_batched_loss(self):
+    def calculate_batched_loss(self, use_deeplift = False):
         """
         Calculate losses, gradients, and update network weights; called in every training iteration
         """
@@ -274,7 +287,11 @@ class PathWiseTrainer(BaseTrainer):
         # Regularization
         self.loss_reg =  self.z_expanded.reshape(self.sample_z, self.x.shape[0], -1).mean(0).mean(1)
 
-        
+        if use_deeplift:
+            assert self.z_deep_lift is not None, "Deep lift must be computed before using it"
+            assert self.z_deep_lift.shape == self.z_expanded.shape, "Deep lift must have the same shape as z_expanded but got {} and {}".format(self.z_deep_lift.shape, self.z_expanded.shape)
+            self.loss_deeplift = (self.z_deep_lift - self.z_expanded).pow(2).flatten(2).mean(-1).mean(0)
+
         # Ising regularization :
         if self.lambda_ising_regularization > 0.0:
             current_z = self.z_expanded.reshape(self.sample_z, self.x.shape[0], 1, *self.x.shape[2:])
@@ -333,13 +350,16 @@ class PathWiseTrainer(BaseTrainer):
             self.y_no_selector,
             self.y,
             reduction='none').reshape(self.x.shape[0])
-           
+        
 
 
-    def backward_g_gamma(self):
+    def backward_g_gamma(self, use_deeplift = False):
         """Backward through the loss for the selector g_gamma"""
         # Total loss
-        self.loss_total = self.loss_class.mean() 
+        if use_deeplift:
+            self.loss_total = self.loss_deeplift.mean()
+        else :
+            self.loss_total = self.loss_class.mean() 
         self.loss_total = self.loss_total \
                         + self.scheduler_lambda_regularization() * self.loss_reg.mean() \
                         + self.scheduler_ising_regularization() * self.loss_ising_regularization.mean()
@@ -378,14 +398,14 @@ class PathWiseTrainer(BaseTrainer):
         return dic
 
 
-    def optimize_parameters(self):
+    def optimize_parameters(self, use_deeplift = False):
         """Calculate losses, gradients, and update network weights; called in every training iteration"""
         # forward
-        self.forward()      # Compute mask and mixed images
-        self.calculate_batched_loss()
+        self.forward(use_deeplift=use_deeplift)      # Compute mask and mixed images
+        self.calculate_batched_loss(use_deeplift=use_deeplift) # Compute losses
         self.set_requires_grad([self.selector,], True)
         self.optimizer_selector.zero_grad()  # set g_gamma's gradients to zero
-        self.backward_g_gamma()             # calculate gradients g_gamma
+        self.backward_g_gamma(use_deeplift=use_deeplift)             # calculate gradients g_gamma
         self.optimizer_selector.step()       # update g_gamma's weights
        
 
